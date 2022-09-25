@@ -18,7 +18,7 @@ class CAMUSDataset(Dataset):
 
         assert mode in ["train", "test"]
 
-        with open(os.path.join(args.data_root, "list", "dataset.yaml"), "r") as f:
+        with open(os.path.join(args['data_root'], "list", "dataset.yaml"), "r") as f:
             img_name_list = yaml.load(f, Loader=yaml.SafeLoader)
 
         random.Random(seed).shuffle(img_name_list)
@@ -38,7 +38,7 @@ class CAMUSDataset(Dataset):
 
         print("start loading %s data" % self.mode)
 
-        path = args.data_root
+        path = args['data_root']
 
         img_list = []
         lab_list = []
@@ -98,12 +98,12 @@ class CAMUSDataset(Dataset):
         img = np.clip(img, 0, max98)
 
         z, y, x = img.shape
-        if x < self.args.training_size[0]:
-            diff = (self.args.training_size[0] + 10 - x) // 2
+        if x < self.args['training_size'][0]:
+            diff = (self.args['training_size'][0] + 10 - x) // 2
             img = np.pad(img, ((0, 0), (0, 0), (diff, diff)))
             lab = np.pad(lab, ((0, 0), (0, 0), (diff, diff)))
-        if y < self.args.training_size[1]:
-            diff = (self.args.training_size[1] + 10 - y) // 2
+        if y < self.args['training_size'][1]:
+            diff = (self.args['training_size'][1] + 10 - y) // 2
             img = np.pad(img, ((0, 0), (diff, diff), (0, 0)))
             lab = np.pad(lab, ((0, 0), (diff, diff), (0, 0)))
 
@@ -142,21 +142,21 @@ class CAMUSDataset(Dataset):
     def center_crop(self, img, label):
         D, H, W = img.shape
 
-        diff_H = H - self.args.training_size[0]
-        diff_W = W - self.args.training_size[1]
+        diff_H = H - self.args['training_size'][0]
+        diff_W = W - self.args['training_size'][1]
 
         rand_x = diff_H // 2
         rand_y = diff_W // 2
 
         croped_img = img[
             :,
-            rand_x : rand_x + self.args.training_size[0],
-            rand_y : rand_y + self.args.training_size[0],
+            rand_x : rand_x + self.args['training_size'][0],
+            rand_y : rand_y + self.args['training_size'][0],
         ]
         croped_lab = label[
             :,
-            rand_x : rand_x + self.args.training_size[1],
-            rand_y : rand_y + self.args.training_size[1],
+            rand_x : rand_x + self.args['training_size'][1],
+            rand_y : rand_y + self.args['training_size'][1],
         ]
 
         return croped_img, croped_lab
