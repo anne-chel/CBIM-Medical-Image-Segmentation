@@ -3,10 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-import pdb 
+import pdb
+
 
 class DiceLoss(nn.Module):
-
     def __init__(self, alpha=0.5, beta=0.5, size_average=True, reduce=True):
         super(DiceLoss, self).__init__()
         self.alpha = alpha
@@ -18,16 +18,15 @@ class DiceLoss(nn.Module):
     def forward(self, preds, targets):
         N = preds.size(0)
         C = preds.size(1)
-        
 
         P = F.softmax(preds, dim=1)
         smooth = torch.zeros(C, dtype=torch.float32).fill_(0.00001)
 
         class_mask = torch.zeros(preds.shape).to(preds.device)
-        class_mask.scatter_(1, targets, 1.) 
+        class_mask.scatter_(1, targets, 1.0)
 
         ones = torch.ones(preds.shape).to(preds.device)
-        P_ = ones - P 
+        P_ = ones - P
         class_mask_ = ones - class_mask
 
         TP = P * class_mask
@@ -35,13 +34,23 @@ class DiceLoss(nn.Module):
         FN = P_ * class_mask
 
         smooth = smooth.to(preds.device)
-        self.alpha = FP.transpose(0, 1).reshape(C, -1).sum(dim=(1)) / ((FP.transpose(0, 1).reshape(C, -1).sum(dim=(1)) + FN.transpose(0, 1).reshape(C, -1).sum(dim=(1))) + smooth)
-    
-        self.alpha = torch.clamp(self.alpha, min=0.2, max=0.8) 
-        #print('alpha:', self.alpha)
+        self.alpha = FP.transpose(0, 1).reshape(C, -1).sum(dim=(1)) / (
+            (
+                FP.transpose(0, 1).reshape(C, -1).sum(dim=(1))
+                + FN.transpose(0, 1).reshape(C, -1).sum(dim=(1))
+            )
+            + smooth
+        )
+
+        self.alpha = torch.clamp(self.alpha, min=0.2, max=0.8)
+        # print('alpha:', self.alpha)
         self.beta = 1 - self.alpha
         num = torch.sum(TP.transpose(0, 1).reshape(C, -1), dim=(1)).float()
-        den = num + self.alpha * torch.sum(FP.transpose(0, 1).reshape(C, -1), dim=(1)).float() + self.beta * torch.sum(FN.transpose(0, 1).reshape(C, -1), dim=(1)).float()
+        den = (
+            num
+            + self.alpha * torch.sum(FP.transpose(0, 1).reshape(C, -1), dim=(1)).float()
+            + self.beta * torch.sum(FN.transpose(0, 1).reshape(C, -1), dim=(1)).float()
+        )
 
         dice = num / (den + smooth)
 
@@ -56,6 +65,7 @@ class DiceLoss(nn.Module):
             loss /= C
 
         return loss
+
 
 class FocalLoss(nn.Module):
     def __init__(self, class_num, alpha=None, gamma=2, size_average=True):
@@ -78,8 +88,8 @@ class FocalLoss(nn.Module):
         log_P = F.log_softmax(preds, dim=1)
 
         class_mask = torch.zeros(preds.shape).to(preds.device)
-        class_mask.scatter_(1, targets, 1.)
-        
+        class_mask.scatter_(1, targets, 1.0)
+
         if targets.size(1) == 1:
             # squeeze the chaneel for target
             targets = targets.squeeze(1)
@@ -87,8 +97,8 @@ class FocalLoss(nn.Module):
 
         probs = (P * class_mask).sum(1)
         log_probs = (log_P * class_mask).sum(1)
-        
-        batch_loss = -alpha * (1-probs).pow(self.gamma)*log_probs
+
+        batch_loss = -alpha * (1 - probs).pow(self.gamma) * log_probs
 
         if self.size_average:
             loss = batch_loss.mean()
@@ -97,18 +107,19 @@ class FocalLoss(nn.Module):
 
         return loss
 
-if __name__ == '__main__':
-    
+
+if __name__ == "__main__":
+
     DL = DiceLoss()
     FL = FocalLoss(10)
-    
+
     pred = torch.randn(2, 10, 128, 128)
     target = torch.zeros((2, 1, 128, 128)).long()
 
     dl_loss = DL(pred, target)
     fl_loss = FL(pred, target)
 
-    print('2D:', dl_loss.item(), fl_loss.item())
+    print("2D:", dl_loss.item(), fl_loss.item())
 
     pred = torch.randn(2, 10, 64, 128, 128)
     target = torch.zeros(2, 1, 64, 128, 128).long()
@@ -116,6 +127,4 @@ if __name__ == '__main__':
     dl_loss = DL(pred, target)
     fl_loss = FL(pred, target)
 
-    print('3D:', dl_loss.item(), fl_loss.item())
-
-    
+    print("3D:", dl_loss.item(), fl_loss.item())

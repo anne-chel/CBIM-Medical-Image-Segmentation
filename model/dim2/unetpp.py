@@ -5,41 +5,37 @@ from .utils import get_block, get_norm
 
 
 class UNetPlusPlus(nn.Module):
-    def __init__(self, in_ch, num_classes, base_ch=32, block='SingleConv'):
+    def __init__(self, in_ch, num_classes, base_ch=32, block="SingleConv"):
         super().__init__()
 
         num_block = 2
         block = get_block(block)
 
-        n_ch = [base_ch, base_ch*2, base_ch*4, base_ch*8, base_ch*16]
-    
-        self.pool = nn.MaxPool2d(2, 2)
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        n_ch = [base_ch, base_ch * 2, base_ch * 4, base_ch * 8, base_ch * 16]
 
+        self.pool = nn.MaxPool2d(2, 2)
+        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
 
         self.conv0_0 = self.make_layer(in_ch, n_ch[0], num_block, block)
         self.conv1_0 = self.make_layer(n_ch[0], n_ch[1], num_block, block)
         self.conv2_0 = self.make_layer(n_ch[1], n_ch[2], num_block, block)
         self.conv3_0 = self.make_layer(n_ch[2], n_ch[3], num_block, block)
         self.conv4_0 = self.make_layer(n_ch[3], n_ch[4], num_block, block)
-        self.conv0_1 = self.make_layer(n_ch[0]+n_ch[1], n_ch[0], num_block, block)
-        self.conv1_1 = self.make_layer(n_ch[1]+n_ch[2], n_ch[1], num_block, block)
-        self.conv2_1 = self.make_layer(n_ch[2]+n_ch[3], n_ch[2], num_block, block)
-        self.conv3_1 = self.make_layer(n_ch[3]+n_ch[4], n_ch[3], num_block, block)
+        self.conv0_1 = self.make_layer(n_ch[0] + n_ch[1], n_ch[0], num_block, block)
+        self.conv1_1 = self.make_layer(n_ch[1] + n_ch[2], n_ch[1], num_block, block)
+        self.conv2_1 = self.make_layer(n_ch[2] + n_ch[3], n_ch[2], num_block, block)
+        self.conv3_1 = self.make_layer(n_ch[3] + n_ch[4], n_ch[3], num_block, block)
 
-        self.conv0_2 = self.make_layer(n_ch[0]*2+n_ch[1], n_ch[0], num_block, block)
-        self.conv1_2 = self.make_layer(n_ch[1]*2+n_ch[2], n_ch[1], num_block, block)
-        self.conv2_2 = self.make_layer(n_ch[2]*2+n_ch[3], n_ch[2], num_block, block)
+        self.conv0_2 = self.make_layer(n_ch[0] * 2 + n_ch[1], n_ch[0], num_block, block)
+        self.conv1_2 = self.make_layer(n_ch[1] * 2 + n_ch[2], n_ch[1], num_block, block)
+        self.conv2_2 = self.make_layer(n_ch[2] * 2 + n_ch[3], n_ch[2], num_block, block)
 
-        self.conv0_3 = self.make_layer(n_ch[0]*3+n_ch[1], n_ch[0], num_block, block)
-        self.conv1_3 = self.make_layer(n_ch[1]*3+n_ch[2], n_ch[1], num_block, block)
+        self.conv0_3 = self.make_layer(n_ch[0] * 3 + n_ch[1], n_ch[0], num_block, block)
+        self.conv1_3 = self.make_layer(n_ch[1] * 3 + n_ch[2], n_ch[1], num_block, block)
 
-
-        self.conv0_4 = self.make_layer(n_ch[0]*4+n_ch[1], n_ch[0], num_block, block)
-
+        self.conv0_4 = self.make_layer(n_ch[0] * 4 + n_ch[1], n_ch[0], num_block, block)
 
         self.output = nn.Conv2d(n_ch[0], num_classes, kernel_size=1)
-
 
     def forward(self, x):
 
@@ -66,14 +62,11 @@ class UNetPlusPlus(nn.Module):
 
         return output
 
-
     def make_layer(self, in_ch, out_ch, num_block, block):
         blocks = []
         blocks.append(block(in_ch, out_ch))
 
-        for i in range(num_block-1):
+        for i in range(num_block - 1):
             blocks.append(block(out_ch, out_ch))
 
         return nn.Sequential(*blocks)
-
-

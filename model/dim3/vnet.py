@@ -9,6 +9,7 @@ def passthrough(x, **kwargs):
 
     return x
 
+
 def ELUCons(elu, nchan):
     if elu:
         return nn.ELU(inplace=True)
@@ -19,17 +20,25 @@ def ELUCons(elu, nchan):
 # normalization between sub-volumes is necessary
 # for good performance
 
+
 class ContBatchNorm3d(nn.modules.batchnorm._BatchNorm):
     def _check_input_dim(self, input):
         if input.dim() != 5:
-            raise ValueError('expected 5D input (got {}D input)'
-                             .format(input.dim()))
+            raise ValueError("expected 5D input (got {}D input)".format(input.dim()))
+
     def forward(self, input):
         self._check_input_dim(input)
-        
+
         return F.batch_norm(
-            input, self.running_mean, self.running_var, self.weight, self.bias,
-            True, self.momentum, self.eps)
+            input,
+            self.running_mean,
+            self.running_var,
+            self.weight,
+            self.bias,
+            True,
+            self.momentum,
+            self.eps,
+        )
 
 
 class LUConv(nn.Module):
@@ -41,7 +50,7 @@ class LUConv(nn.Module):
 
     def forward(self, x):
         out = self.relu1(self.bn1(self.conv1(x)))
-        
+
         return out
 
 
@@ -49,9 +58,8 @@ def _make_nConv(nchan, depth, elu):
     layers = []
     for _ in range(depth):
         layers.append(LUConv(nchan, elu))
-    
-    return nn.Sequential(*layers)
 
+    return nn.Sequential(*layers)
 
 
 class InputTransition(nn.Module):
@@ -69,18 +77,19 @@ class InputTransition(nn.Module):
         # split input in to 16 channels
         num = int(self.outChans / self.inChans)
         x16 = x.repeat(1, num, 1, 1, 1)
-        #x16 = torch.cat((x, x, x, x, x, x, x, x,
+        # x16 = torch.cat((x, x, x, x, x, x, x, x,
         #                 x, x, x, x, x, x, x, x), 0)
 
         out = self.relu1(torch.add(out, x16))
 
         return out
 
+
 class DownTransition(nn.Module):
     def __init__(self, inChans, nConvs, elu, scale=2, dropout=False):
         super(DownTransition, self).__init__()
 
-        outChans = 2*inChans
+        outChans = 2 * inChans
         self.down_conv = nn.Conv3d(inChans, outChans, kernel_size=scale, stride=scale)
         self.bn1 = ContBatchNorm3d(outChans)
         self.do1 = passthrough
@@ -105,7 +114,9 @@ class UpTransition(nn.Module):
     def __init__(self, inChans, outChans, nConvs, elu, scale=2, dropout=False):
         super(UpTransition, self).__init__()
 
-        self.up_conv = nn.ConvTranspose3d(inChans, outChans // 2, kernel_size=scale, stride=scale)
+        self.up_conv = nn.ConvTranspose3d(
+            inChans, outChans // 2, kernel_size=scale, stride=scale
+        )
         self.bn1 = ContBatchNorm3d(outChans // 2)
         self.do1 = passthrough
         self.do2 = nn.Dropout3d()
@@ -153,16 +164,27 @@ class VNet(nn.Module):
 
         self.in_tr = InputTransition(inChans, baseChans, elu)
         self.down_tr32 = DownTransition(baseChans, 1, elu, scale=scale[0])
-        self.down_tr64 = DownTransition(baseChans*2, 2, elu, scale=scale[1])
-        self.down_tr128 = DownTransition(baseChans*4, 3, elu, dropout=True, scale=scale[2])
-        self.down_tr256 = DownTransition(baseChans*8, 2, elu, dropout=True, scale=scale[3])
+        self.down_tr64 = DownTransition(baseChans * 2, 2, elu, scale=scale[1])
+        self.down_tr128 = DownTransition(
+            baseChans * 4, 3, elu, dropout=True, scale=scale[2]
+        )
+        self.down_tr256 = DownTransition(
+            baseChans * 8, 2, elu, dropout=True, scale=scale[3]
+        )
 
-        self.up_tr256 = UpTransition(baseChans*16, baseChans*16, 2, elu, dropout=True, scale=scale[3])
-        self.up_tr128 = UpTransition(baseChans*16, baseChans*8, 2, elu, dropout=True, scale=scale[2])
-        self.up_tr64 = UpTransition(baseChans*8, baseChans*4, 1, elu, scale=scale[1])
-        self.up_tr32 = UpTransition(baseChans*4, baseChans*2, 1, elu, scale=scale[0])
-        self.out_tr = OutputTransition(baseChans*2, outChans, elu, nll)
-
+        self.up_tr256 = UpTransition(
+            baseChans * 16, baseChans * 16, 2, elu, dropout=True, scale=scale[3]
+        )
+        self.up_tr128 = UpTransition(
+            baseChans * 16, baseChans * 8, 2, elu, dropout=True, scale=scale[2]
+        )
+        self.up_tr64 = UpTransition(
+            baseChans * 8, baseChans * 4, 1, elu, scale=scale[1]
+        )
+        self.up_tr32 = UpTransition(
+            baseChans * 4, baseChans * 2, 1, elu, scale=scale[0]
+        )
+        self.out_tr = OutputTransition(baseChans * 2, outChans, elu, nll)
 
     def forward(self, x):
 
