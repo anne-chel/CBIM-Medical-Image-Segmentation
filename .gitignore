@@ -8,4 +8,6 @@ exp/
 initmodel/
 result/
 *.swp
-
+camus
+/.DS_Store
+/.idea
