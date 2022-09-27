@@ -3,6 +3,7 @@ import SimpleITK as sitk
 from pprint import pprint
 import matplotlib.pylab as plt
 
+
 def get_dataset(args, mode, **kwargs):
 
     if args.dimension == "2d":
@@ -49,6 +50,7 @@ def get_dataset(args, mode, **kwargs):
                 k=kwargs["fold_idx"],
                 seed=args.seed,
             )
+
 
 def display_image_pair(filename_image, filename_mask, size=(20, 16)):
 

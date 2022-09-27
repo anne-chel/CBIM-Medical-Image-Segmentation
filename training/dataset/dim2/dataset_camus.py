@@ -7,12 +7,19 @@ import yaml
 import random
 from tqdm import tqdm
 
+
 class CAMUSDataset(Dataset):
-    def __init__(self, args, mode='train', seed=0):
+    def __init__(self, args, mode="train", seed=0):
+
+        assert mode in ["train", "test"]
         self.mode = mode
         self.args = args
+        self.img_slice_list_train = []
+        self.lab_slice_list_train = []
+        self.img_slice_list_test = []
+        self.lab_slice_list_test = []
 
-        with open(os.path.join(args['data_root'], "list", "dataset.yaml"), "r") as f:
+        with open(os.path.join(args["data_root"], "list", "dataset.yaml"), "r") as f:
             img_name_list = yaml.load(f, Loader=yaml.SafeLoader)
 
         random.Random(seed).shuffle(img_name_list)
@@ -20,17 +27,17 @@ class CAMUSDataset(Dataset):
         length = len(img_name_list)
         print(f"The length of the patient list is {length}")
         print(f"It will include {length * 4} samples")
-        test_name_list = img_name_list[:args['test_size']]
+        test_name_list = img_name_list[: args["test_size"]]
         train_name_list = list(set(img_name_list) - set(test_name_list))
         print("start loading data")
 
-        path = args['data_root']
+        path = args["data_root"]
 
         img_list_train = []
         lab_list_train = []
         spacing_list_train = []
         idx = ["_2CH_ED.mhd", "_2CH_ES.mhd", "_4CH_ED.mhd", "_4CH_ES.mhd"]
-        
+
         # Load training
         for name in tqdm(train_name_list):
             for id in idx:
@@ -49,8 +56,6 @@ class CAMUSDataset(Dataset):
                 img_list_train.append(img)
                 lab_list_train.append(lab)
 
-        self.img_slice_list_train = []
-        self.lab_slice_list_train = []
         for i in range(len(img_list_train)):
             tmp_img = img_list_train[i]
             tmp_lab = lab_list_train[i]
@@ -65,6 +70,7 @@ class CAMUSDataset(Dataset):
         img_list_test = []
         lab_list_test = []
         spacing_list_test = []
+        
         # Load tests
         for name in tqdm(test_name_list):
             for id in idx:
@@ -82,8 +88,6 @@ class CAMUSDataset(Dataset):
                 img_list_test.append(img)
                 lab_list_test.append(lab)
 
-        self.img_slice_list_test = []
-        self.lab_slice_list_test = []
         for i in range(len(img_list_test)):
             tmp_img = img_list_test[i]
             tmp_lab = lab_list_test[i]
@@ -94,17 +98,16 @@ class CAMUSDataset(Dataset):
                 self.img_slice_list_test.append(tmp_img[j])
                 self.lab_slice_list_test.append(tmp_lab[j])
         print("Test done, length of dataset:", len(self.img_slice_list_test))
-        print("load done, length of dataset:", len(self.img_slice_list_test) + len(self.img_slice_list_train))
+        print(
+            "load done, length of dataset:",
+            len(self.img_slice_list_test) + len(self.img_slice_list_train),
+        )
 
     def __len__(self):
-        if self.mode =='train':
+        if self.mode == "train":
             return len(self.img_slice_list_train)
         else:
             return len(self.img_slice_list_test)
-
-    def shape(self):
-        print(f"shape: {self.img_slice_list[0].shape}")
-        print(f"shape: {self.img_slice_list[1].shape}")
 
     def preprocess(self, itk_img, itk_lab):
 
@@ -115,12 +118,12 @@ class CAMUSDataset(Dataset):
         img = np.clip(img, 0, max98)
 
         z, y, x = img.shape
-        if x < self.args['training_size'][0]:
-            diff = (self.args['training_size'][0] + 10 - x) // 2
+        if x < self.args["training_size"][0]:
+            diff = (self.args["training_size"][0] + 10 - x) // 2
             img = np.pad(img, ((0, 0), (0, 0), (diff, diff)))
             lab = np.pad(lab, ((0, 0), (0, 0), (diff, diff)))
-        if y < self.args['training_size'][1]:
-            diff = (self.args['training_size'][1] + 10 - y) // 2
+        if y < self.args["training_size"][1]:
+            diff = (self.args["training_size"][1] + 10 - y) // 2
             img = np.pad(img, ((0, 0), (diff, diff), (0, 0)))
             lab = np.pad(lab, ((0, 0), (diff, diff), (0, 0)))
 
@@ -154,25 +157,24 @@ class CAMUSDataset(Dataset):
 
         return tensor_img, tensor_lab
 
-
     def center_crop(self, img, label):
         D, H, W = img.shape
 
-        diff_H = H - self.args['training_size'][0]
-        diff_W = W - self.args['training_size'][1]
+        diff_H = H - self.args["training_size"][0]
+        diff_W = W - self.args["training_size"][1]
 
         rand_x = diff_H // 2
         rand_y = diff_W // 2
 
         croped_img = img[
             :,
-            rand_x : rand_x + self.args['training_size'][0],
-            rand_y : rand_y + self.args['training_size'][0],
+            rand_x : rand_x + self.args["training_size"][0],
+            rand_y : rand_y + self.args["training_size"][0],
         ]
         croped_lab = label[
             :,
-            rand_x : rand_x + self.args['training_size'][1],
-            rand_y : rand_y + self.args['training_size'][1],
+            rand_x : rand_x + self.args["training_size"][1],
+            rand_y : rand_y + self.args["training_size"][1],
         ]
 
         return croped_img, croped_lab
