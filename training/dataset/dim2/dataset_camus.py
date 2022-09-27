@@ -70,7 +70,7 @@ class CAMUSDataset(Dataset):
         img_list_test = []
         lab_list_test = []
         spacing_list_test = []
-        
+
         # Load tests
         for name in tqdm(test_name_list):
             for id in idx:
@@ -156,6 +156,12 @@ class CAMUSDataset(Dataset):
         assert tensor_img.shape == tensor_lab.shape
 
         return tensor_img, tensor_lab
+
+    def test(self):
+        self.mode = 'test'
+
+    def train(self):
+        self.mode = 'train'
 
     def center_crop(self, img, label):
         D, H, W = img.shape
