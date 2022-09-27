@@ -7,16 +7,10 @@ import yaml
 import random
 from tqdm import tqdm
 
-# from training import augmentation
-
-
 class CAMUSDataset(Dataset):
-    def __init__(self, args, mode="train", k_fold=5, k=0, seed=0):
-
+    def __init__(self, args, mode='train', seed=0):
         self.mode = mode
         self.args = args
-
-        assert mode in ["train", "test"]
 
         with open(os.path.join(args['data_root'], "list", "dataset.yaml"), "r") as f:
             img_name_list = yaml.load(f, Loader=yaml.SafeLoader)
@@ -24,28 +18,21 @@ class CAMUSDataset(Dataset):
         random.Random(seed).shuffle(img_name_list)
 
         length = len(img_name_list)
-        print(f"The len of the patient list is {length}")
+        print(f"The length of the patient list is {length}")
+        print(f"It will include {length * 4} samples")
         test_name_list = img_name_list[:args['test_size']]
         train_name_list = list(set(img_name_list) - set(test_name_list))
-
-        self.train_length = len(train_name_list)
-        print(f"The len of the training list is {self.train_length}")
-
-        if mode == "train":
-            img_name_list = train_name_list
-        else:
-            img_name_list = test_name_list
-
-        print("start loading %s data" % self.mode)
+        print("start loading data")
 
         path = args['data_root']
 
-        img_list = []
-        lab_list = []
-        spacing_list = []
+        img_list_train = []
+        lab_list_train = []
+        spacing_list_train = []
         idx = ["_2CH_ED.mhd", "_2CH_ES.mhd", "_4CH_ED.mhd", "_4CH_ES.mhd"]
-
-        for name in tqdm(img_name_list):
+        
+        # Load training
+        for name in tqdm(train_name_list):
             for id in idx:
 
                 img_name = name + id
@@ -53,37 +40,67 @@ class CAMUSDataset(Dataset):
                 itk_img = sitk.ReadImage(os.path.join(path, img_name))
                 itk_lab = sitk.ReadImage(os.path.join(path, lab_name))
                 spacing = np.array(itk_lab.GetSpacing()).tolist()
-                spacing_list.append(spacing[::-1])
+                spacing_list_train.append(spacing[::-1])
 
                 assert itk_img.GetSize() == itk_lab.GetSize()
 
                 img, lab = self.preprocess(itk_img, itk_lab)
 
-                img_list.append(img)
-                lab_list.append(lab)
+                img_list_train.append(img)
+                lab_list_train.append(lab)
 
-        self.img_slice_list = []
-        self.lab_slice_list = []
-        if self.mode == "train":
-            for i in range(len(img_list)):
-                tmp_img = img_list[i]
-                tmp_lab = lab_list[i]
+        self.img_slice_list_train = []
+        self.lab_slice_list_train = []
+        for i in range(len(img_list_train)):
+            tmp_img = img_list_train[i]
+            tmp_lab = lab_list_train[i]
 
-                z, x, y = tmp_img.shape
+            z, x, y = tmp_img.shape
 
-                for j in range(z):
-                    self.img_slice_list.append(tmp_img[j])
-                    self.lab_slice_list.append(tmp_lab[j])
+            for j in range(z):
+                self.img_slice_list_train.append(tmp_img[j])
+                self.lab_slice_list_train.append(tmp_lab[j])
+        print("Train done, length of dataset:", len(self.img_slice_list_train))
 
-        else:
-            self.img_slice_list = img_list
-            self.lab_slice_list = lab_list
-            self.spacing_list = spacing_list
+        img_list_test = []
+        lab_list_test = []
+        spacing_list_test = []
+        # Load tests
+        for name in tqdm(test_name_list):
+            for id in idx:
+                img_name = name + id
+                lab_name = name + id.replace(".", "_gt.")
+                itk_img = sitk.ReadImage(os.path.join(path, img_name))
+                itk_lab = sitk.ReadImage(os.path.join(path, lab_name))
+                spacing = np.array(itk_lab.GetSpacing()).tolist()
+                spacing_list_test.append(spacing[::-1])
 
-        print("load done, length of dataset:", len(self.img_slice_list))
+                assert itk_img.GetSize() == itk_lab.GetSize()
+
+                img, lab = self.preprocess(itk_img, itk_lab)
+
+                img_list_test.append(img)
+                lab_list_test.append(lab)
+
+        self.img_slice_list_test = []
+        self.lab_slice_list_test = []
+        for i in range(len(img_list_test)):
+            tmp_img = img_list_test[i]
+            tmp_lab = lab_list_test[i]
+
+            z, x, y = tmp_img.shape
+
+            for j in range(z):
+                self.img_slice_list_test.append(tmp_img[j])
+                self.lab_slice_list_test.append(tmp_lab[j])
+        print("Test done, length of dataset:", len(self.img_slice_list_test))
+        print("load done, length of dataset:", len(self.img_slice_list_test) + len(self.img_slice_list_train))
 
     def __len__(self):
-        return len(self.img_slice_list)
+        if self.mode =='train':
+            return len(self.img_slice_list_train)
+        else:
+            return len(self.img_slice_list_test)
 
     def shape(self):
         print(f"shape: {self.img_slice_list[0].shape}")
@@ -121,23 +138,22 @@ class CAMUSDataset(Dataset):
         return tensor_img, tensor_lab
 
     def __getitem__(self, idx):
-        tensor_img = self.img_slice_list[idx]
-        tensor_lab = self.lab_slice_list[idx]
-        # return (tensor_img,tensor_lab)
-
         if self.mode == "train":
+            tensor_img = self.img_slice_list_train[idx]
+            tensor_lab = self.lab_slice_list_train[idx]
             tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
             tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
             tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
         else:
-            tensor_img, tensor_lab = self.center_crop(tensor_img, tensor_lab)
-
+            tensor_img = self.img_slice_list_test[idx]
+            tensor_lab = self.lab_slice_list_test[idx]
+            tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
+            tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
+            tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
         assert tensor_img.shape == tensor_lab.shape
 
-        if self.mode == "train":
-            return tensor_img, tensor_lab
-        else:
-            return tensor_img, tensor_lab, np.array(self.spacing_list[idx])
+        return tensor_img, tensor_lab
+
 
     def center_crop(self, img, label):
         D, H, W = img.shape
