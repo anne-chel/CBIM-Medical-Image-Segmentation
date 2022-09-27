@@ -25,7 +25,7 @@ class CAMUSDataset(Dataset):
 
         length = len(img_name_list)
         print(f"The len of the patient list is {length}")
-        test_name_list = img_name_list[:10]
+        test_name_list = img_name_list[:args['test_size']]
         train_name_list = list(set(img_name_list) - set(test_name_list))
 
         self.train_length = len(train_name_list)
