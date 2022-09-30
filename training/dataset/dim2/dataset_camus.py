@@ -139,8 +139,8 @@ class CAMUSDataset(Dataset):
         #     img = np.pad(img, ((0, 0), (diff, diff), (0, 0)))
         #     lab = np.pad(lab, ((0, 0), (diff, diff), (0, 0)))
 
-        # img = img[:, :256, :256]
-        # lab = lab[:, :256, :256]
+        img = img[:, :256, :256]
+        lab = lab[:, :256, :256]
 
         img = img / max98
 
