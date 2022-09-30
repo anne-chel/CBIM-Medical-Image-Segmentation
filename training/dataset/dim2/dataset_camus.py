@@ -6,13 +6,15 @@ import SimpleITK as sitk
 import yaml
 import random
 from tqdm import tqdm
+from training import augmentation
 
 
 class CAMUSDataset(Dataset):
-    def __init__(self, args, mode="train", seed=0):
+    def __init__(self, args, mode="train", seed=0, augmentation=False):
 
         assert mode in ["train", "test"]
         self.mode = mode
+        self.augmentation = augmentation
         self.args = args
         self.img_slice_list_train = []
         self.lab_slice_list_train = []
@@ -118,22 +120,32 @@ class CAMUSDataset(Dataset):
         img = np.clip(img, 0, max98)
 
         z, y, x = img.shape
+
         if x < self.args["training_size"][0]:
-            diff = (self.args["training_size"][0] + 10 - x) // 2
+            diff = int(np.ceil((self.args["training_size"][0] - x) / 2))
             img = np.pad(img, ((0, 0), (0, 0), (diff, diff)))
             lab = np.pad(lab, ((0, 0), (0, 0), (diff, diff)))
         if y < self.args["training_size"][1]:
-            diff = (self.args["training_size"][1] + 10 - y) // 2
+            diff = int(np.ceil((self.args["training_size"][1] - y) / 2))
             img = np.pad(img, ((0, 0), (diff, diff), (0, 0)))
             lab = np.pad(lab, ((0, 0), (diff, diff), (0, 0)))
 
-        img = img[:, :256, :256]
-        lab = lab[:, :256, :256]
+        # if x < self.args["training_size"][0]:
+        #     diff = (self.args["training_size"][0] + 10 - x) // 2
+        #     img = np.pad(img, ((0, 0), (0, 0), (diff, diff)))
+        #     lab = np.pad(lab, ((0, 0), (0, 0), (diff, diff)))
+        # if y < self.args["training_size"][1]:
+        #     diff = (self.args["training_size"][1] + 10 - y) // 2
+        #     img = np.pad(img, ((0, 0), (diff, diff), (0, 0)))
+        #     lab = np.pad(lab, ((0, 0), (diff, diff), (0, 0)))
+
+        # img = img[:, :256, :256]
+        # lab = lab[:, :256, :256]
 
         img = img / max98
 
-        img = img.astype(np.float32)
-        lab = lab.astype(np.uint8)
+        # img = img.astype(np.float32)
+        # lab = lab.astype(np.uint8)
 
         tensor_img = torch.from_numpy(img).float()
         tensor_lab = torch.from_numpy(lab).long()
@@ -147,6 +159,31 @@ class CAMUSDataset(Dataset):
             tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
             tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
             tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+            if self.augmentation == True:
+                # Gaussian Noise
+                tensor_img = augmentation.gaussian_noise(
+                    tensor_img, std=self.args.gaussian_noise_std
+                )
+                # Additive brightness
+                tensor_img = augmentation.brightness_additive(
+                    tensor_img, std=self.args.additive_brightness_std
+                )
+                # gamma
+                tensor_img = augmentation.gamma(
+                    tensor_img, gamma_range=self.args.gamma_range, retain_stats=True
+                )
+
+                tensor_img, tensor_lab = augmentation.random_scale_rotate_translate_2d(
+                    tensor_img,
+                    tensor_lab,
+                    self.args.scale,
+                    self.args.rotate,
+                    self.args.translate,
+                )
+                tensor_img, tensor_lab = augmentation.crop_2d(
+                    tensor_img, tensor_lab, self.args.training_size, mode="random"
+                )
+
         else:
             tensor_img = self.img_slice_list_test[idx]
             tensor_lab = self.lab_slice_list_test[idx]
