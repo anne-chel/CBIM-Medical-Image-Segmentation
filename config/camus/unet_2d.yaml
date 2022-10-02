@@ -1,5 +1,6 @@
 #DATA
 data_root: /content/drive/MyDrive/AI4MED/tgt_dir
+data_info: /content/drive/MyDrive/AI4MED/training/training
 classes: 4
 modality: ultrasound
 

@@ -10,11 +10,12 @@ from training import augmentation
 
 
 class CAMUSDataset(Dataset):
-    def __init__(self, args, mode="train", seed=0, augmentation=False):
+    def __init__(self, args, mode="train", seed=0, augmentation=False, only_quality=True):
 
         assert mode in ["train", "test"]
         self.mode = mode
         self.augmentation = augmentation
+        self.only_quality = only_quality
         self.args = args
         self.img_slice_list_train = []
         self.lab_slice_list_train = []
@@ -26,9 +27,25 @@ class CAMUSDataset(Dataset):
 
         random.Random(seed).shuffle(img_name_list)
 
+        quality_patients_2CH = []
+        quality_patients_4CH = []
+        if only_quality:
+            for patient in img_name_list:
+                with open(os.path.join(args["data_info"], patient, "Info_2CH.cfg")) as info2:
+                    i2 = yaml.safe_load(info2)
+                    if i2['ImageQuality'] == 'Good' or i2['ImageQuality'] == 'Medium':
+                        quality_patients_2CH.append(patient)
+                with open(os.path.join(args["data_info"], patient, "Info_4CH.cfg")) as info4:
+                    i4 = yaml.safe_load(info4)
+                    if i4['ImageQuality'] == 'Good' or i4['ImageQuality'] == 'Medium':
+                        quality_patients_4CH.append(patient)
+
         length = len(img_name_list)
         print(f"The length of the patient list is {length}")
-        print(f"It will include {length * 4} samples")
+        if only_quality:
+            print(f"It will include {len(quality_patients_2CH)*2 + len(quality_patients_4CH)*2} good quality samples")
+        else:
+            print(f"It will include {length * 4} samples")
         test_name_list = img_name_list[: args["test_size"]]
         train_name_list = list(set(img_name_list) - set(test_name_list))
         print("start loading data")
@@ -42,7 +59,16 @@ class CAMUSDataset(Dataset):
 
         # Load training
         for name in tqdm(train_name_list):
-            for id in idx:
+            selected_images = []
+            if only_quality:
+                if name in quality_patients_2CH:
+                    selected_images += idx[:2]
+                if name in quality_patients_4CH:
+                    selected_images += idx[2:]
+            else:
+                selected_images = idx
+
+            for id in selected_images:
 
                 img_name = name + id
                 lab_name = name + id.replace(".", "_gt.")
@@ -75,7 +101,16 @@ class CAMUSDataset(Dataset):
 
         # Load tests
         for name in tqdm(test_name_list):
-            for id in idx:
+            selected_images = []
+            if only_quality:
+                if name in quality_patients_2CH:
+                    selected_images += idx[:2]
+                if name in quality_patients_4CH:
+                    selected_images += idx[2:]
+            else:
+                selected_images = idx
+
+            for id in selected_images:
                 img_name = name + id
                 lab_name = name + id.replace(".", "_gt.")
                 itk_img = sitk.ReadImage(os.path.join(path, img_name))
@@ -158,7 +193,7 @@ class CAMUSDataset(Dataset):
             tensor_lab = self.lab_slice_list_train[idx]
             tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
             tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
-            tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+
             if self.augmentation == True:
                 # Gaussian Noise
                 tensor_img = augmentation.gaussian_noise(
@@ -183,6 +218,8 @@ class CAMUSDataset(Dataset):
                 tensor_img, tensor_lab = augmentation.crop_2d(
                     tensor_img, tensor_lab, self.args.training_size, mode="random"
                 )
+
+                tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
 
         else:
             tensor_img = self.img_slice_list_test[idx]
