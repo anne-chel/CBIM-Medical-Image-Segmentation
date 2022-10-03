@@ -32,26 +32,31 @@ class CAMUSDataset(Dataset):
         print("Selecting good quality samples")
         if only_quality:
             for patient in tqdm(img_name_list):
-                with open(os.path.join(args["data_info"], patient, "Info_2CH.cfg")) as info2:
+                with open(
+                    os.path.join(args["data_info"], patient, "Info_2CH.cfg")
+                ) as info2:
                     i2 = yaml.safe_load(info2)
-                    if i2['ImageQuality'] == 'Good' or i2['ImageQuality'] == 'Medium':
+                    if i2["ImageQuality"] == "Good" or i2["ImageQuality"] == "Medium":
                         quality_patients_2CH.append(patient)
-                with open(os.path.join(args["data_info"], patient, "Info_4CH.cfg")) as info4:
+                with open(
+                    os.path.join(args["data_info"], patient, "Info_4CH.cfg")
+                ) as info4:
                     i4 = yaml.safe_load(info4)
-                    if i4['ImageQuality'] == 'Good' or i4['ImageQuality'] == 'Medium':
+                    if i4["ImageQuality"] == "Good" or i4["ImageQuality"] == "Medium":
                         quality_patients_4CH.append(patient)
-                
 
         length = len(img_name_list)
         print(f"The length of the patient list is {length}")
         if only_quality:
-            print(f"It will include {len(quality_patients_2CH)*2 + len(quality_patients_4CH)*2} good quality samples")
+            print(
+                f"It will include {len(quality_patients_2CH)*2 + len(quality_patients_4CH)*2} good quality samples"
+            )
         else:
             print(f"It will include {length * 4} samples")
 
         test_name_list = img_name_list[: args["test_size"]]
         train_name_list = list(set(img_name_list) - set(test_name_list))
-        
+        test_name_list = test_name_list[:3]
         print("start loading data")
 
         path = args["data_root"]
@@ -83,18 +88,16 @@ class CAMUSDataset(Dataset):
 
                 img, lab = self.preprocess(itk_img, itk_lab)
 
-
                 img_list_train.append(img)
                 lab_list_train.append(lab)
 
         for i in range(len(img_list_train)):
             self.img_slice_list_train.append(img_list_train[i][0])
             self.lab_slice_list_train.append(lab_list_train[i][0])
-        
-        print('Augmenting now')
+        print(f"{len(self.img_slice_list_train)} samples of good quality")
+        print("Augmenting now")
         if self.doAugmentation is not None:
-            for augment in self.doAugmentation:
-                self.create_augmentations(aug=augment)
+            self.create_augmentations()
 
         print("Train done, length of dataset:", len(self.img_slice_list_train))
 
@@ -128,7 +131,7 @@ class CAMUSDataset(Dataset):
                 img_list_test.append(img)
                 lab_list_test.append(lab)
 
-        for i in range(len(img_list_train)):
+        for i in range(len(img_list_test)):
             self.img_slice_list_test.append(img_list_test[i][0])
             self.lab_slice_list_test.append(lab_list_test[i][0])
 
@@ -153,7 +156,7 @@ class CAMUSDataset(Dataset):
         img = np.clip(img, 0, max98)
 
         z, y, x = img.shape
-        
+
         if x < self.args["training_size"][0]:
             diff = int(np.ceil((self.args["training_size"][0] - x) / 2))
             img = np.pad(img, ((0, 0), (0, 0), (diff, diff)))
@@ -177,24 +180,23 @@ class CAMUSDataset(Dataset):
         if self.mode == "train":
             tensor_img = self.img_slice_list_train[idx]
             tensor_lab = self.lab_slice_list_train[idx]
-            tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
-            tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
-            tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+            tensor_img = tensor_img.unsqueeze(0)
+            tensor_lab = tensor_lab.unsqueeze(0)
+            # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
         else:
             tensor_img = self.img_slice_list_test[idx]
             tensor_lab = self.lab_slice_list_test[idx]
-            tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
-            tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
-            tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+            tensor_img = tensor_img.unsqueeze(0)
+            # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
         assert tensor_img.shape == tensor_lab.shape
 
         return tensor_img, tensor_lab
 
     def test(self):
-        self.mode = 'test'
+        self.mode = "test"
 
     def train(self):
-        self.mode = 'train'
+        self.mode = "train"
 
     def center_crop(self, img, label):
         D, H, W = img.shape
@@ -218,24 +220,25 @@ class CAMUSDataset(Dataset):
 
         return croped_img, croped_lab
 
-    
-    def create_augmentations(self, aug:augmentation):
-        # img_aug = []
-        # lbl_aug = []
-        # perform the augm
+    def create_augmentations(self):
+
         # if not isinstance(aug,augmentation ):
         #     raise TypeError('Augmentation not recognized')
-
-        if aug in [augmentation.brightness_additive, augmentation.gaussian_noise]:
-            if aug == augmentation.gaussian_noise: std = self.args['gaussian_noise'] 
-            if aug == augmentation.brightness_additive: std = self.args['brightness_additive'] 
-            total = len(self.img_slice_list_train)
-            for i in range(total):
-                tensor_img = self.img_slice_list_train[i].unsqueeze(0).unsqueeze(0)
-                tensor_lab = self.lab_slice_list_train[i].unsqueeze(0).unsqueeze(0)
-                img_augmented = aug(tensor_img, std = std)
-                lab_augmented = tensor_lab
-                assert lab_augmented.shape == img_augmented.shape 
-                img_augmented, lab_augmented = img_augmented.squeeze(0), lab_augmented.squeeze(0)
-                self.img_slice_list_train.append(img_augmented)
-                self.lab_slice_list_train.append(lab_augmented)
+        total = len(self.img_slice_list_train)
+        for aug in self.doAugmentation:
+            if aug in [augmentation.brightness_additive, augmentation.gaussian_noise]:
+                if aug == augmentation.gaussian_noise:
+                    std = self.args["gaussian_noise"]
+                if aug == augmentation.brightness_additive:
+                    std = self.args["brightness_additive"]
+                for i in range(total):
+                    tensor_img = self.img_slice_list_train[i].unsqueeze(0).unsqueeze(0)
+                    tensor_lab = self.lab_slice_list_train[i].unsqueeze(0).unsqueeze(0)
+                    img_augmented = aug(tensor_img, std=std)
+                    lab_augmented = tensor_lab
+                    assert lab_augmented.shape == img_augmented.shape
+                    img_augmented, lab_augmented = img_augmented.squeeze(0).squeeze(
+                        0
+                    ), lab_augmented.squeeze(0).squeeze(0)
+                    self.img_slice_list_train.append(img_augmented)
+                    self.lab_slice_list_train.append(lab_augmented)
