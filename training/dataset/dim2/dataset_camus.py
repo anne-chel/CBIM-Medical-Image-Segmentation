@@ -10,11 +10,11 @@ from training import augmentation
 
 
 class CAMUSDataset(Dataset):
-    def __init__(self, args, mode="train", seed=0, augmentation=False, only_quality=True):
+    def __init__(self, args, mode="train", seed=0, only_quality=True):
 
         assert mode in ["train", "test"]
         self.mode = mode
-        self.augmentation = augmentation
+        self.doAugmentation = args["augs"]
         self.only_quality = only_quality
         self.args = args
         self.img_slice_list_train = []
@@ -29,8 +29,9 @@ class CAMUSDataset(Dataset):
 
         quality_patients_2CH = []
         quality_patients_4CH = []
+        print("Selecting good quality samples")
         if only_quality:
-            for patient in img_name_list:
+            for patient in tqdm(img_name_list):
                 with open(os.path.join(args["data_info"], patient, "Info_2CH.cfg")) as info2:
                     i2 = yaml.safe_load(info2)
                     if i2['ImageQuality'] == 'Good' or i2['ImageQuality'] == 'Medium':
@@ -39,6 +40,7 @@ class CAMUSDataset(Dataset):
                     i4 = yaml.safe_load(info4)
                     if i4['ImageQuality'] == 'Good' or i4['ImageQuality'] == 'Medium':
                         quality_patients_4CH.append(patient)
+                
 
         length = len(img_name_list)
         print(f"The length of the patient list is {length}")
@@ -46,15 +48,17 @@ class CAMUSDataset(Dataset):
             print(f"It will include {len(quality_patients_2CH)*2 + len(quality_patients_4CH)*2} good quality samples")
         else:
             print(f"It will include {length * 4} samples")
+
         test_name_list = img_name_list[: args["test_size"]]
         train_name_list = list(set(img_name_list) - set(test_name_list))
+        
         print("start loading data")
 
         path = args["data_root"]
 
         img_list_train = []
         lab_list_train = []
-        spacing_list_train = []
+        # spacing_list_train = []
         idx = ["_2CH_ED.mhd", "_2CH_ES.mhd", "_4CH_ED.mhd", "_4CH_ES.mhd"]
 
         # Load training
@@ -69,30 +73,29 @@ class CAMUSDataset(Dataset):
                 selected_images = idx
 
             for id in selected_images:
-
                 img_name = name + id
                 lab_name = name + id.replace(".", "_gt.")
                 itk_img = sitk.ReadImage(os.path.join(path, img_name))
                 itk_lab = sitk.ReadImage(os.path.join(path, lab_name))
-                spacing = np.array(itk_lab.GetSpacing()).tolist()
-                spacing_list_train.append(spacing[::-1])
-
+                # spacing = np.array(itk_lab.GetSpacing()).tolist()
+                # spacing_list_train.append(spacing[::-1])
                 assert itk_img.GetSize() == itk_lab.GetSize()
 
                 img, lab = self.preprocess(itk_img, itk_lab)
+
 
                 img_list_train.append(img)
                 lab_list_train.append(lab)
 
         for i in range(len(img_list_train)):
-            tmp_img = img_list_train[i]
-            tmp_lab = lab_list_train[i]
+            self.img_slice_list_train.append(img_list_train[i][0])
+            self.lab_slice_list_train.append(lab_list_train[i][0])
+        
+        print('Augmentating now')
+        if self.doAugmentation is not None:
+            for augment in self.doAugmentation:
+                self.create_augmentations(aug=augment)
 
-            z, x, y = tmp_img.shape
-
-            for j in range(z):
-                self.img_slice_list_train.append(tmp_img[j])
-                self.lab_slice_list_train.append(tmp_lab[j])
         print("Train done, length of dataset:", len(self.img_slice_list_train))
 
         img_list_test = []
@@ -125,15 +128,10 @@ class CAMUSDataset(Dataset):
                 img_list_test.append(img)
                 lab_list_test.append(lab)
 
-        for i in range(len(img_list_test)):
-            tmp_img = img_list_test[i]
-            tmp_lab = lab_list_test[i]
+        for i in range(len(img_list_train)):
+            self.img_slice_list_test.append(img_list_test[i][0])
+            self.lab_slice_list_test.append(lab_list_test[i][0])
 
-            z, x, y = tmp_img.shape
-
-            for j in range(z):
-                self.img_slice_list_test.append(tmp_img[j])
-                self.lab_slice_list_test.append(tmp_lab[j])
         print("Test done, length of dataset:", len(self.img_slice_list_test))
         print(
             "load done, length of dataset:",
@@ -146,7 +144,7 @@ class CAMUSDataset(Dataset):
         else:
             return len(self.img_slice_list_test)
 
-    def preprocess(self, itk_img, itk_lab):
+    def preprocess(self, itk_img, itk_lab, augs):
 
         img = sitk.GetArrayFromImage(itk_img)
         lab = sitk.GetArrayFromImage(itk_lab)
@@ -155,7 +153,7 @@ class CAMUSDataset(Dataset):
         img = np.clip(img, 0, max98)
 
         z, y, x = img.shape
-
+        
         if x < self.args["training_size"][0]:
             diff = int(np.ceil((self.args["training_size"][0] - x) / 2))
             img = np.pad(img, ((0, 0), (0, 0), (diff, diff)))
@@ -165,22 +163,10 @@ class CAMUSDataset(Dataset):
             img = np.pad(img, ((0, 0), (diff, diff), (0, 0)))
             lab = np.pad(lab, ((0, 0), (diff, diff), (0, 0)))
 
-        # if x < self.args["training_size"][0]:
-        #     diff = (self.args["training_size"][0] + 10 - x) // 2
-        #     img = np.pad(img, ((0, 0), (0, 0), (diff, diff)))
-        #     lab = np.pad(lab, ((0, 0), (0, 0), (diff, diff)))
-        # if y < self.args["training_size"][1]:
-        #     diff = (self.args["training_size"][1] + 10 - y) // 2
-        #     img = np.pad(img, ((0, 0), (diff, diff), (0, 0)))
-        #     lab = np.pad(lab, ((0, 0), (diff, diff), (0, 0)))
-
         img = img[:, :256, :256]
         lab = lab[:, :256, :256]
 
         img = img / max98
-
-        # img = img.astype(np.float32)
-        # lab = lab.astype(np.uint8)
 
         tensor_img = torch.from_numpy(img).float()
         tensor_lab = torch.from_numpy(lab).long()
@@ -191,42 +177,15 @@ class CAMUSDataset(Dataset):
         if self.mode == "train":
             tensor_img = self.img_slice_list_train[idx]
             tensor_lab = self.lab_slice_list_train[idx]
-            tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
-            tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
-
-            if self.augmentation == True:
-                # Gaussian Noise
-                tensor_img = augmentation.gaussian_noise(
-                    tensor_img, std=self.args.gaussian_noise_std
-                )
-                # Additive brightness
-                tensor_img = augmentation.brightness_additive(
-                    tensor_img, std=self.args.additive_brightness_std
-                )
-                # gamma
-                tensor_img = augmentation.gamma(
-                    tensor_img, gamma_range=self.args.gamma_range, retain_stats=True
-                )
-
-                tensor_img, tensor_lab = augmentation.random_scale_rotate_translate_2d(
-                    tensor_img,
-                    tensor_lab,
-                    self.args.scale,
-                    self.args.rotate,
-                    self.args.translate,
-                )
-                tensor_img, tensor_lab = augmentation.crop_2d(
-                    tensor_img, tensor_lab, self.args.training_size, mode="random"
-                )
-
-                tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
-
+            # tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
+            # tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
+            # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
         else:
             tensor_img = self.img_slice_list_test[idx]
             tensor_lab = self.lab_slice_list_test[idx]
-            tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
-            tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
-            tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+            # tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
+            # tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
+            # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
         assert tensor_img.shape == tensor_lab.shape
 
         return tensor_img, tensor_lab
@@ -258,3 +217,25 @@ class CAMUSDataset(Dataset):
         ]
 
         return croped_img, croped_lab
+
+    
+    def create_augmentations(self, aug:augmentation):
+        # img_aug = []
+        # lbl_aug = []
+        # perform the augm
+        # if not isinstance(aug,augmentation ):
+        #     raise TypeError('Augmentation not recognized')
+
+        if aug in [augmentation.brightness_additive, augmentation.gaussian_noise]:
+            if aug == augmentation.gaussian_noise: std = self.args['gaussian_noise'] 
+            if aug == augmentation.brightness_additive: std = self.args['brightness_additive'] 
+            total = len(self.img_slice_list_train)
+            for i in range(total):
+                tensor_img = self.img_slice_list_train[i].unsqueeze(0).unsqueeze(0)
+                tensor_lab = self.lab_slice_list_train[i].unsqueeze(0).unsqueeze(0)
+                img_augmented = aug(tensor_img, std = std)
+                lab_augmented = tensor_lab
+                assert lab_augmented.shape == img_augmented.shape 
+                img_augmented, lab_augmented = img_augmented.squeeze(0), lab_augmented.squeeze(0)
+                self.img_slice_list_train.append(img_augmented)
+                self.lab_slice_list_train.append(lab_augmented)
