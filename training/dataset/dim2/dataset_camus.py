@@ -56,7 +56,6 @@ class CAMUSDataset(Dataset):
 
         test_name_list = img_name_list[: args["test_size"]]
         train_name_list = list(set(img_name_list) - set(test_name_list))
-        test_name_list = test_name_list[:3]
         print("start loading data")
 
         path = args["data_root"]
@@ -183,12 +182,14 @@ class CAMUSDataset(Dataset):
             tensor_img = tensor_img.unsqueeze(0)
             tensor_lab = tensor_lab.unsqueeze(0)
             # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+            assert tensor_img.shape == tensor_lab.shape # training
         else:
             tensor_img = self.img_slice_list_test[idx]
             tensor_lab = self.lab_slice_list_test[idx]
             tensor_img = tensor_img.unsqueeze(0)
+            tensor_lab = tensor_lab.unsqueeze(0)
             # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
-        assert tensor_img.shape == tensor_lab.shape
+            assert tensor_img.shape == tensor_lab.shape # test
 
         return tensor_img, tensor_lab
 
