@@ -91,7 +91,7 @@ class CAMUSDataset(Dataset):
             self.img_slice_list_train.append(img_list_train[i][0])
             self.lab_slice_list_train.append(lab_list_train[i][0])
         
-        print('Augmentating now')
+        print('Augmenting now')
         if self.doAugmentation is not None:
             for augment in self.doAugmentation:
                 self.create_augmentations(aug=augment)
@@ -144,7 +144,7 @@ class CAMUSDataset(Dataset):
         else:
             return len(self.img_slice_list_test)
 
-    def preprocess(self, itk_img, itk_lab, augs):
+    def preprocess(self, itk_img, itk_lab):
 
         img = sitk.GetArrayFromImage(itk_img)
         lab = sitk.GetArrayFromImage(itk_lab)
@@ -177,15 +177,15 @@ class CAMUSDataset(Dataset):
         if self.mode == "train":
             tensor_img = self.img_slice_list_train[idx]
             tensor_lab = self.lab_slice_list_train[idx]
-            # tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
-            # tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
-            # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+            tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
+            tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
+            tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
         else:
             tensor_img = self.img_slice_list_test[idx]
             tensor_lab = self.lab_slice_list_test[idx]
-            # tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
-            # tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
-            # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+            tensor_img = tensor_img.unsqueeze(0).unsqueeze(0)
+            tensor_lab = tensor_lab.unsqueeze(0).unsqueeze(0)
+            tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
         assert tensor_img.shape == tensor_lab.shape
 
         return tensor_img, tensor_lab
