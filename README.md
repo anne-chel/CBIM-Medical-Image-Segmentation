@@ -4,8 +4,9 @@ Group names: Anne Chel, Mats Gonggrijp, Victor Kyriacou, Vıctor Retamal Guibert
 This forked repository contains the work of our group, build on top of the package CBIM-Medical-Image-Segmentation
 The Dataset preparation script is located at ```dataset_conversion/camus_2d.py```. 
 The Dataset Generator is located at ```training/dataset/2dim/dataset_camus.py```.
-The Training pipeline is located at ``` AImed/pipeline.py``` The pipeline file contains the losses/metrics and the script for the experiments.
-The Modified Simpson is located at ```AImed/lvef_estimation.py```
+The Training pipeline is located at ``` AImed/pipeline.ipynb``` The pipeline file contains the losses/metrics and the script for the experiments.
+The Modified Simpson is located at ```AImed/lvef_estimation.ipynb```
+
 
 ----------------------------------------------------------------------------------------------------
 ## CBIM-Medical-Image-Segmentation
