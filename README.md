@@ -1,3 +1,12 @@
+## Camus Segmentation Challenge AI for Medical Imaging
+Group names: Anne Chel, Mats Gonggrijp, Victor Kyriacou, Vıctor Retamal Guiberteau, Laura Latorre Moreno
+
+This forked repository contains the work of our group, build on top of the package CBIM-Medical-Image-Segmentation
+The Dataset preparation script is located at ```dataset_conversion/camus_2d.py```. 
+The Dataset Generator is located at ```training/dataset/2dim/dataset_camus.py```.
+The Training pipeline is located at ``` AImed/pipeline.py```
+
+----------------------------------------------------------------------------------------------------
 ## CBIM-Medical-Image-Segmentation
 
 This repo is a PyTorch-based framework for medical image segmentation, whose goal is to provide an easy-to-use framework for academic researchers to develop and 
