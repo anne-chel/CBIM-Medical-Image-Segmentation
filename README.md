@@ -1,3 +1,6 @@
+## Follow-up project
+To run the env creator in Snellius, clone this repository. Run ```sbatch env_build.yml``` in the terminal and after approx 30 mins, the environment should be created. 
+
 ## Camus Segmentation Challenge AI for Medical Imaging
 Group names: Anne Chel, Mats Gonggrijp, Victor Kyriacou, Vıctor Retamal Guiberteau, Laura Latorre Moreno
 
