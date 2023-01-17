@@ -5,7 +5,7 @@
 #SBATCH --job-name=InstallEnvironment
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=3
-#SBATCH --time=01:00:00
+#SBATCH --time=02:00:00
 #SBATCH --mem=32000M
 #SBATCH --output=installation%A.out
 
