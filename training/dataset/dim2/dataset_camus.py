@@ -182,14 +182,14 @@ class CAMUSDataset(Dataset):
             tensor_img = tensor_img.unsqueeze(0)
             tensor_lab = tensor_lab.unsqueeze(0)
             # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
-            assert tensor_img.shape == tensor_lab.shape # training
+            assert tensor_img.shape == tensor_lab.shape  # training
         else:
             tensor_img = self.img_slice_list_test[idx]
             tensor_lab = self.lab_slice_list_test[idx]
             tensor_img = tensor_img.unsqueeze(0)
             tensor_lab = tensor_lab.unsqueeze(0)
             # tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
-            assert tensor_img.shape == tensor_lab.shape # test
+            assert tensor_img.shape == tensor_lab.shape  # test
 
         return tensor_img, tensor_lab
 
