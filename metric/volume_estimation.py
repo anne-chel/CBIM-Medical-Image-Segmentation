@@ -1,4 +1,3 @@
-
 import SimpleITK as sitk
 import yaml
 from imutils import contours
@@ -101,7 +100,9 @@ def get_widths(mask_2chamber, mask_4chamber, disk_size=25, mode="ED"):
                 for x in range(-10, 11):
                     for y in range(-10, 11):
                         # Check that the window is within the image
-                        if ((middle_y + y) < 0 or (middle_y + y) >= image.shape[0]) or ((middle_x + x) < 0 or (middle_x + x) >= image.shape[1]):
+                        if ((middle_y + y) < 0 or (middle_y + y) >= image.shape[0]) or (
+                            (middle_x + x) < 0 or (middle_x + x) >= image.shape[1]
+                        ):
                             continue
                         else:
                             values.add(image[middle_y + y, middle_x + x])
@@ -231,7 +232,7 @@ def compute_volume(ventricle_widths, ventricle_length):
     # Make the lists the same length
     # Find the minimum length of the diastole and systole lists
     max_length = max([len(ventricle_widths[x]) for x in range(len(ventricle_widths))])
-    assert (len(ventricle_widths) == 2 and max_length > 0) 
+    assert len(ventricle_widths) == 2 and max_length > 0
     # Make the lists the same length
     for i in range(2):
         if len(ventricle_widths[i]) < max_length:
