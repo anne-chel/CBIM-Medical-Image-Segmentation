@@ -24,7 +24,7 @@ dependencies:
     - ipywidgets>=7.6.5
     - scikit-plot>=0.3.7
     - kornia
-    - SimpleITK==2.0.0
+    - SimpleITK>=2.0.0
     - imutils
     - absl-py
     - addict
