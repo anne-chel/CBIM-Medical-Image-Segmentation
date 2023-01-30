@@ -6,7 +6,7 @@ import numpy as np
 from model.utils import get_model
 from training.dataset.utils import get_dataset
 from torch.utils import data
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 
 from training.utils import update_ema_variables
 from training.losses import DiceLoss

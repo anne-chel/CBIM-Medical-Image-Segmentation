@@ -16,7 +16,6 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from model.dim2.unet import *
 from model.dim2.utnetv2 import *
-from training.dataset.dim2.dataset_camus import CAMUSDataset
 import kornia as K
 import pytorch_lightning as pl
 import torchvision
@@ -25,7 +24,6 @@ import torch.nn.functional as F
 from torch.utils.data import random_split, DataLoader
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
-from google.colab import drive
 from torchvision.utils import make_grid
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning import loggers as pl_loggers
@@ -47,27 +45,18 @@ import skimage.exposure
 import numpy as np
 from torchvision.utils import save_image
 import torchvision.transforms as T
-
-drive.mount("/content/drive")
-
-# these remain constant
-filepath = "/content/drive/MyDrive/AI4MED/training/training/"
-filepath_checkpoint = "/content/drive/MyDrive/AI4MED/model-checkpoints/"
-
-"""##**Prepare data and create dataset**"""
-
 import cv2
 
+# these remain constant
+filepath = "/training/"
+filepath_checkpoint = "/model-checkpoints/"
 
+"""Prepare data and create dataset"""
 def gaussian_noise(tensor_img, std, mean=0):
-
     random = torch.randn(tensor_img.shape).to(tensor_img.device) * std + mean
-
     return tensor_img + random
 
-
 def brightness_additive(tensor_img, std, mean=0, per_channel=False):
-
     if per_channel:
         C = tensor_img.shape[1]
     else:
@@ -97,72 +86,58 @@ class CAMUSDataset(Dataset):
         self.args = args
         self.img_slice_list = []
         self.lab_slice_list = []
-
         self.sizes = []
+        self.filepath = "/training/training/"
 
-        self.filepath = "/content/drive/MyDrive/AI4MED/training/training/"
-        self.filepath_test = "/content/drive/MyDrive/AI4MED/Copy_of_testing/testing/"
+        # for the official unseen set of camus
+        self.filepath_test = "/Copy_of_testing/testing/"
 
-        with open(os.path.join(args["data_root"], "list", "dataset.yaml"), "r") as f:
+        with open(args["data_root"]+"/list/dataset.yaml", "r") as f:
             img_name_list = yaml.load(f, Loader=yaml.SafeLoader)
 
         camus_test_names = img_name_list[0:50]
 
         random.Random(seed).shuffle(img_name_list)
 
-        quality_patients_2CH = []
-        quality_patients_4CH = []
-        print("Selecting good quality samples")
-
-        img_names = []
-        if only_quality:
-            for patient in tqdm(img_name_list):
+        # img_names consists of all the patient names with either all
+        # or only good quality
+        img_names = []        
+        for patient in tqdm(img_name_list):
+            if only_quality:
                 with open(
-                    os.path.join(args["data_info"], patient, "Info_2CH.cfg")
+                    args["data_info"]+"/"+patient+"/"+"Info_2CH.cfg"
                 ) as info2:
                     i2 = yaml.safe_load(info2)
                     if i2["ImageQuality"] == "Good" or i2["ImageQuality"] == "Medium":
-                        quality_patients_2CH.append(patient)
-
                         img_names.append(patient)
                 with open(
-                    os.path.join(args["data_info"], patient, "Info_4CH.cfg")
+                    args["data_info"]+"/"+patient+"/"+"Info_4CH.cfg"
                 ) as info4:
                     i4 = yaml.safe_load(info4)
                     if i4["ImageQuality"] == "Good" or i4["ImageQuality"] == "Medium":
-                        quality_patients_4CH.append(patient)
                         img_names.append(patient)
+            else:
+                img_names.append(patient)
 
-        length = len(img_name_list)
         img_names_list = img_names
-        print(f"The length of the patient list is {length}")
-        if only_quality:
-            print(
-                f"It will include {len(quality_patients_2CH)*2 + len(quality_patients_4CH)*2} good quality samples"
-            )
-        else:
-            print(f"It will include {length * 4} samples")
 
         test_name_list = img_name_list[: args["test_size"]]
         train_name_list = list(set(img_name_list) - set(test_name_list))
 
-        print("start loading data")
+        train_name_list = train_name_list[:2]
 
-        path = filepath
+
+        path = './training/training'
         img_list = []
         lab_list = []
         idx = ["_2CH_ED.mhd", "_2CH_ES.mhd", "_4CH_ED.mhd", "_4CH_ES.mhd"]
         if mode == "train":
             # Load training
+            print("Load and process training data")
+            print(train_name_list)
+
             for name in tqdm(train_name_list):
-                selected_images = []
-                if only_quality:
-                    if name in quality_patients_2CH:
-                        selected_images += idx[:2]
-                    if name in quality_patients_4CH:
-                        selected_images += idx[2:]
-                else:
-                    selected_images = idx
+                selected_images = idx
 
                 for id in selected_images:
                     img_name = name + id
@@ -243,18 +218,14 @@ class CAMUSDataset(Dataset):
                 self.lab_slice_list.append(lab_list[i][0])
 
         elif mode == "test":
+            print("Load and process test data")
+            print(test_name_list)
 
             self.all_names_save = []
             # Load tests
             for name in tqdm(test_name_list):
-                selected_images = []
-                if only_quality:
-                    if name in quality_patients_2CH:
-                        selected_images += idx[:2]
-                    if name in quality_patients_4CH:
-                        selected_images += idx[2:]
-                else:
-                    selected_images = idx
+
+                selected_images = idx
 
                 for id in selected_images:
 
@@ -503,14 +474,14 @@ class CAMUSDataset(Dataset):
 class CAMUS_DATA(pl.LightningDataModule):
     def __init__(
         self,
-        data_root="/content/drive/MyDrive/AI4MED/tgt_dir",
+        data_root="./tgt_dir",
         t=0.3,
         s1=0.6,
         s2=1.5,
         rotation=20,
         batch_size=8,
         training_size=[256, 256],
-        test_size=10,
+        test_size=2,
         SNR=True,
     ):
         super().__init__()
@@ -521,7 +492,7 @@ class CAMUS_DATA(pl.LightningDataModule):
 
         self.args = {
             "data_root": data_root,
-            "data_info": "/content/drive/MyDrive/AI4MED/training/training",
+            "data_info": "./training/training",
             "training_size": training_size,
             "test_size": test_size,
             "rotation": rotation,
@@ -582,11 +553,11 @@ class Segmentation(pl.LightningModule):
 
         if model == "UTNetV2":
             self.model = UTNetV2(1, 4)
-            self.filepath_logs = "/content/drive/MyDrive/AI4MED/logs/UTnetv2/"
+            self.filepath_logs = "./logs/UTnetv2/"
 
         if model == "Unet":
             self.model = UNet(1, 4)
-            self.filepath_logs = "/content/drive/MyDrive/AI4MED/logs/Unet/"
+            self.filepath_logs = "./logs/Unet/"
 
         if loss_function == "CE":
             self.criterion = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
@@ -902,8 +873,7 @@ class Segmentation(pl.LightningModule):
         preds = torch.argmax(logits, dim=1)
         self.log("val_loss", val_loss)
 
-        # D, total =  self.multi_class_dice_score(preds, label.squeeze(1))
-        self.log("D", D)
+
 
         # log predictions and label
         # new = torch.cat((preds.unsqueeze(1)/self.classes, label/self.classes), dim=0)
@@ -1345,7 +1315,7 @@ class Segmentation(pl.LightningModule):
         name = patients[self.epoch]
 
         torch.save(
-            preds, "/content/drive/MyDrive/AI4MED/predictions/camus_test/" + name
+            preds, "./predictions/camus_test/" + name
         )
 
         self.epoch = self.epoch + 1
@@ -1475,7 +1445,7 @@ class Segmentation(pl.LightningModule):
         if self.epoch % 4 == 3:
             name = patients[self.epoch] + "_" + idx[3]
 
-        torch.save(preds, "/content/drive/MyDrive/AI4MED/predictions/new_unet/" + name)
+        torch.save(preds, "./predictions/new_unet/" + name)
 
         self.epoch = self.epoch + 1
 
@@ -1489,17 +1459,17 @@ class Segmentation(pl.LightningModule):
 # Commented out IPython magic to ensure Python compatibility.
 # make use of this implementation for monogenic signals, the paper we cited in
 # our paper did not have an implementation unfortunately
-!git clone https://github.com/asp1420/monogenic-cnn-illumination-contrast
+#!git clone https://github.com/asp1420/monogenic-cnn-illumination-contrast
 # %cd monogenic-cnn-illumination-contrast/
 
-!pip install pyfftw
+#!pip install pyfftw
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.fftpack import fftshift, ifftshift
 from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
 import cv2
-import tools.monogenic_functions as mf
+import monogenic.tools.monogenic_functions as mf
 from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
 from sklearn.preprocessing import minmax_scale
 
@@ -1548,18 +1518,22 @@ for model_name in ["UTNetV2"]:
                             + str(loss_function),
                         )
 
+
+                        with open('key.txt') as f:
+                            key = f.readline()
+                        f.close()
                         # plug in your own logger, we used neptune, but we removed our secret api token and project name
-                        # neptune_logger = NeptuneLogger(
-                        #    api_token="",
-                        #    project="",
-                        #    log_model_checkpoints=False
-                        # )
+                        neptune_logger = NeptuneLogger(
+                            api_token=key,
+                            project="ace-ch/seg",
+                            log_model_checkpoints=False
+                        )
 
                         trainer = Trainer(
-                            # logger=neptune_logger,
+                            logger=neptune_logger,
                             accelerator="auto",
                             devices=1 if torch.cuda.is_available() else None,
-                            max_epochs=1,
+                            max_epochs=10,
                             callbacks=[checkpoint_callback],
                             log_every_n_steps=1,
                         )
@@ -1580,7 +1554,7 @@ model = Segmentation(
 trainer.test(
     model=model,
     datamodule=datamodule,
-    ckpt_path="/content/drive/MyDrive/AI4MED/model-checkpoints/BESTE-UTNetV2-epoch=19-D_loss_val=0.086311-8-CE+EDGE[0.9, 1.2, 20, 0.2]0.0005TrueCE+EDGE.ckpt",
+    ckpt_path="./model-checkpoints/"
 )
 ###### Other models used in our paper scores ###
 # trainer.test(model=model, datamodule = datamodule, ckpt_path="/content/drive/MyDrive/AI4MED/model-checkpoints/Unet-epoch=19-D_loss_val=0.098966-8-DICE+CE[0.9, 1.1, 10, 0.1]0.0005FalseDICE+CE.ckpt")

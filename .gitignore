@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 *_bkp.py
+*.cfg
+*.mhd
+*.raw
 flops.py
 checkpoint/
 log*/
@@ -11,3 +14,8 @@ result/
 camus
 /.DS_Store
 /.idea
+lightning_logs/
+tgt_dir/
+key.txt
+/training/training/
+.neptune/
