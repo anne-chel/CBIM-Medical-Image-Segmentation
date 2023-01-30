@@ -14,6 +14,13 @@ This forked repository contains the work of our group, build on top of the packa
 ### Supporting Datasets
 - CAMUS
 
+### To do
+- more cleaning
+- output for slurm
+- experimental setup design
+- more models
+- signifance testing
+
 ### Citation
 ```
 @inproceedings{gao2021utnet,
