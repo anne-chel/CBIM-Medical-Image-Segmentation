@@ -37,7 +37,6 @@ import yaml
 import random
 from tqdm import tqdm
 from neptune.new.types import File
-from training import augmentation
 from training import losses
 from pytorch_lightning.loggers import NeptuneLogger
 import cv2
@@ -46,485 +45,27 @@ import numpy as np
 from torchvision.utils import save_image
 import torchvision.transforms as T
 import cv2
+from torch.nn.modules import PairwiseDistance
+from training.data import CAMUSDataset
+from training.data import CAMUS_DATA
+from scipy.spatial.distance import directed_hausdorff
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.fftpack import fftshift, ifftshift
+from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
+import cv2
+import monogenic.tools.monogenic_functions as mf
+from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
+from sklearn.preprocessing import minmax_scale
+
 
 # these remain constant
 filepath = "/training/"
 filepath_checkpoint = "/model-checkpoints/"
 
-"""Prepare data and create dataset"""
-def gaussian_noise(tensor_img, std, mean=0):
-    random = torch.randn(tensor_img.shape).to(tensor_img.device) * std + mean
-    return tensor_img + random
 
-def brightness_additive(tensor_img, std, mean=0, per_channel=False):
-    if per_channel:
-        C = tensor_img.shape[1]
-    else:
-        C = 1
-
-    if len(tensor_img.shape) == 5:
-        rand_brightness = torch.normal(mean, std, size=(1, C, 1, 1, 1)).to(
-            tensor_img.device
-        )
-    elif len(tensor_img.shape) == 4:
-        rand_brightness = torch.normal(mean, std, size=(1, C, 1, 1)).to(
-            tensor_img.device
-        )
-    else:
-        raise ValueError(
-            "Invalid input tensor dimension, should be 5d for volume image or 4d for 2d image"
-        )
-    return tensor_img + rand_brightness
-
-
-class CAMUSDataset(Dataset):
-    def __init__(self, args, mode=None, seed=0, only_quality=True):
-
-        self.mode = mode
-        self.doAugmentation = args["augs"]
-        self.only_quality = only_quality
-        self.args = args
-        self.img_slice_list = []
-        self.lab_slice_list = []
-        self.sizes = []
-        self.filepath = "/training/training/"
-
-        # for the official unseen set of camus
-        self.filepath_test = "/Copy_of_testing/testing/"
-
-        with open(args["data_root"]+"/list/dataset.yaml", "r") as f:
-            img_name_list = yaml.load(f, Loader=yaml.SafeLoader)
-
-        camus_test_names = img_name_list[0:50]
-
-        random.Random(seed).shuffle(img_name_list)
-
-        # img_names consists of all the patient names with either all
-        # or only good quality
-        img_names = []        
-        for patient in tqdm(img_name_list):
-            if only_quality:
-                with open(
-                    args["data_info"]+"/"+patient+"/"+"Info_2CH.cfg"
-                ) as info2:
-                    i2 = yaml.safe_load(info2)
-                    if i2["ImageQuality"] == "Good" or i2["ImageQuality"] == "Medium":
-                        img_names.append(patient)
-                with open(
-                    args["data_info"]+"/"+patient+"/"+"Info_4CH.cfg"
-                ) as info4:
-                    i4 = yaml.safe_load(info4)
-                    if i4["ImageQuality"] == "Good" or i4["ImageQuality"] == "Medium":
-                        img_names.append(patient)
-            else:
-                img_names.append(patient)
-
-        img_names_list = img_names
-
-        test_name_list = img_name_list[: args["test_size"]]
-        train_name_list = list(set(img_name_list) - set(test_name_list))
-
-        train_name_list = train_name_list[:2]
-
-
-        path = './training/training'
-        img_list = []
-        lab_list = []
-        idx = ["_2CH_ED.mhd", "_2CH_ES.mhd", "_4CH_ED.mhd", "_4CH_ES.mhd"]
-        if mode == "train":
-            # Load training
-            print("Load and process training data")
-            print(train_name_list)
-
-            for name in tqdm(train_name_list):
-                selected_images = idx
-
-                for id in selected_images:
-                    img_name = name + id
-                    lab_name = name + id.replace(".", "_gt.")
-
-                    itk_img = cv2.resize(
-                        sitk.GetArrayFromImage(
-                            sitk.ReadImage(
-                                os.path.join(path + "/" + name + "/", img_name),
-                                sitk.sitkFloat32,
-                            )
-                        )[0, :, :],
-                        dsize=(256, 256),
-                        interpolation=cv2.INTER_CUBIC,
-                    )
-                    itk_lab = cv2.resize(
-                        sitk.GetArrayFromImage(
-                            sitk.ReadImage(
-                                os.path.join(path + "/" + name + "/", lab_name),
-                                sitk.sitkFloat32,
-                            )
-                        )[0, :, :],
-                        dsize=(256, 256),
-                        interpolation=cv2.INTER_NEAREST,
-                    )
-                    itk_lab = np.reshape(itk_lab, (1, 256, 256))
-                    itk_img = np.reshape(itk_img, (1, 256, 256)) / 255
-                    img, lab = self.preprocess(itk_img, itk_lab)
-                    img_list.append(img)
-                    lab_list.append(lab)
-
-            for i in range(len(img_list)):
-                self.img_slice_list.append(img_list[i][0])
-                self.lab_slice_list.append(lab_list[i][0])
-
-            if self.doAugmentation:
-                print("Augmenting now")
-                self.create_augmentations()
-
-            print("Train done, length of dataset:", len(self.img_slice_list))
-
-        ###### actual test set from camus with no labels
-        elif mode == "camus":
-            self.all_names_save = []
-            for name in tqdm(camus_test_names):
-                selected_images = idx
-                for id in selected_images:
-                    img_name = name + id
-                    self.all_names_save.append(img_name.replace(".mhd", ""))
-                    self.sizes.append(
-                        sitk.GetArrayFromImage(
-                            sitk.ReadImage(
-                                os.path.join(
-                                    self.filepath_test + "/" + name + "/", img_name
-                                ),
-                                sitk.sitkFloat32,
-                            )
-                        )[0, :, :].shape
-                    )
-                    itk_img = cv2.resize(
-                        sitk.GetArrayFromImage(
-                            sitk.ReadImage(
-                                os.path.join(
-                                    self.filepath_test + "/" + name + "/", img_name
-                                ),
-                                sitk.sitkFloat32,
-                            )
-                        )[0, :, :],
-                        dsize=(256, 256),
-                        interpolation=cv2.INTER_CUBIC,
-                    )
-                    itk_img = np.reshape(itk_img, (1, 256, 256)) / 255
-                    img, lab = self.preprocess(itk_img, itk_img)
-                    img_list.append(img)
-                    lab_list.append(lab)
-            for i in range(len(img_list)):
-                self.img_slice_list.append(img_list[i][0])
-                self.lab_slice_list.append(lab_list[i][0])
-
-        elif mode == "test":
-            print("Load and process test data")
-            print(test_name_list)
-
-            self.all_names_save = []
-            # Load tests
-            for name in tqdm(test_name_list):
-
-                selected_images = idx
-
-                for id in selected_images:
-
-                    img_name = name + id
-                    self.all_names_save.append(img_name)
-                    lab_name = name + id.replace(".", "_gt.")
-                    self.sizes.append(
-                        sitk.GetArrayFromImage(
-                            sitk.ReadImage(
-                                os.path.join(path + "/" + name + "/", lab_name),
-                                sitk.sitkFloat32,
-                            )
-                        )[0, :, :].shape
-                    )
-                    itk_img = cv2.resize(
-                        sitk.GetArrayFromImage(
-                            sitk.ReadImage(
-                                os.path.join(path + "/" + name + "/", img_name),
-                                sitk.sitkFloat32,
-                            )
-                        )[0, :, :],
-                        dsize=(256, 256),
-                        interpolation=cv2.INTER_CUBIC,
-                    )
-                    itk_lab = cv2.resize(
-                        sitk.GetArrayFromImage(
-                            sitk.ReadImage(
-                                os.path.join(path + "/" + name + "/", lab_name),
-                                sitk.sitkFloat32,
-                            )
-                        )[0, :, :],
-                        dsize=(256, 256),
-                        interpolation=cv2.INTER_NEAREST,
-                    )
-                    itk_lab = np.reshape(itk_lab, (1, 256, 256))
-                    itk_img = np.reshape(itk_img, (1, 256, 256)) / 255
-
-                    img, lab = self.preprocess(itk_img, itk_lab)
-
-                    img_list.append(img)
-                    lab_list.append(lab)
-
-            for i in range(len(img_list)):
-                self.img_slice_list.append(img_list[i][0])
-                self.lab_slice_list.append(lab_list[i][0])
-
-            print("Test done, length of dataset:", len(self.img_slice_list))
-
-    def __len__(self):
-        return len(self.img_slice_list)
-
-    def preprocess(self, img, lab):
-
-        import torchvision.transforms as T
-
-        tensor_img = torch.from_numpy(img).float()
-        tensor_lab = torch.from_numpy(lab).long()
-
-        return tensor_img, tensor_lab
-
-    def __getitem__(self, idx):
-        tensor_img = self.img_slice_list[idx]
-        tensor_lab = self.lab_slice_list[idx]
-        tensor_img = tensor_img.unsqueeze(0)
-        tensor_lab = tensor_lab.unsqueeze(0)
-        assert tensor_img.shape == tensor_lab.shape
-
-        return torch.clamp(tensor_img, min=0.0, max=1.0), tensor_lab
-
-    def create_augmentations(self):
-
-        import torchvision.transforms as T
-
-        total = len(self.img_slice_list)
-        new_imgs = []
-        new_labs = []
-
-        s1 = self.args["s1"]
-        s2 = self.args["s2"]
-        t = self.args["t"]
-        rot = self.args["rotation"]
-        for i in range(total):
-
-            ######## affine transformation
-            # use the same transformation for ground truth label and image
-            affine_transfomer = T.RandomAffine(
-                degrees=(-rot, rot), translate=(t, t), scale=(s1, s2)
-            )
-            new = torch.cat(
-                (
-                    self.img_slice_list[i].unsqueeze(0),
-                    self.lab_slice_list[i].unsqueeze(0),
-                ),
-                dim=0,
-            )
-            transformed = affine_transfomer(new.unsqueeze(dim=1))
-
-            img_aug = torch.clamp(transformed[0].squeeze(), min=0.0, max=1.0)
-            new_imgs.append(img_aug)
-            new_labs.append(transformed[1].squeeze().int())
-
-            ###### SNR augmentation
-            if self.args["SNR"] == True:
-
-                # append label to set, this is unchanged
-                new_labs.append(self.lab_slice_list[i].int())
-
-                label = self.lab_slice_list[i]
-                img = self.img_slice_list[i]
-
-                ##### mask 3 pixels around the triangular border otherwise it will
-                ##### be extremely visible in in the monogenic signal
-                mask = np.where(label > 0, 1, 0)
-                for i in range(256):
-                    for j in range(256):
-                        if j == 0 and mask[i][j] == 1:
-                            mask[i][j + 1] = 0
-                        if j < 254:
-                            if mask[i][j] == 0:
-                                mask[i][j + 1] = 0
-                                break
-                for i in range(256):
-                    for j in range(256):
-                        if j < 254:
-                            if mask[i][j] == 0 and mask[i][j + 1] == 1:
-                                mask[i][j + 1] = 0
-                                break
-                for i in range(256):
-                    for j in range(256):
-                        if j < 254:
-                            if mask[i][j] == 0 and mask[i][j + 1] == 1:
-                                mask[i][j + 1] = 0
-                                break
-                for i in range(255, -1, -1):
-                    for j in range(255, -1, -1):
-                        if j == 255 and mask[i][j] == 1:
-                            mask[i][j] = 0
-                for i in range(255, -1, -1):
-                    for j in range(255, -1, -1):
-                        if j > 0:
-                            if mask[i][j] == 0 and mask[i][j - 1] == 1:
-                                mask[i][j - 1] = 0
-                                break
-                for i in range(255, 252, -1):
-                    for j in range(255, -1, -1):
-                        mask[i][j] = 0
-
-                rows, cols = img.shape
-
-                # the higher the wavelength and sigma the more "details" are removed
-                logGabor, logGabor_H1, logGabor_H2 = mf.monogenic_scale(
-                    cols=cols, rows=rows, ss=1, minWaveLength=3, mult=1.8, sigmaOnf=0.2
-                )
-
-                IM = fft2(img)
-                IMF = IM * logGabor
-
-                IMH1 = IM * logGabor_H1
-                IMH2 = IM * logGabor_H2
-
-                f = np.real(ifft2(IMF))
-                h1 = np.real(ifft2(IMH1))
-                h2 = np.real(ifft2(IMH2))
-
-                ##### LEM
-                LEM = torch.FloatTensor(f * f + h1 * h1 + h2 * h2)
-
-                mask = torch.tensor(mask)
-                signal = LEM * mask.float()
-
-                #### create gaussian smoothed edges for every ground truth label
-                label0 = torch.where(label == 0, -1, 0)
-                label0 = torch.where(label0 == -1, 1, 0)  # background
-                label1 = torch.where(label == 1, 1, 0)  # big chamber
-                label2 = torch.where(label == 2, 1, 0)  # white thing around
-                label3 = torch.where(label == 3, 1, 0)  # little one at the bottom
-
-                # blur label 1
-                blur = cv2.GaussianBlur(
-                    label1.float().numpy(),
-                    (0, 0),
-                    sigmaX=5,
-                    sigmaY=5,
-                    borderType=cv2.BORDER_DEFAULT,
-                )
-                label1 = skimage.exposure.rescale_intensity(
-                    blur, in_range=(0.5, 1), out_range=(0, 1)
-                )
-
-                # blur label 2
-                blur = cv2.GaussianBlur(
-                    label2.float().numpy(),
-                    (0, 0),
-                    sigmaX=5,
-                    sigmaY=5,
-                    borderType=cv2.BORDER_DEFAULT,
-                )
-                label2 = skimage.exposure.rescale_intensity(
-                    blur, in_range=(0.5, 1), out_range=(0, 1)
-                )
-
-                # blur label 3
-                blur = cv2.GaussianBlur(
-                    label3.float().numpy(),
-                    (0, 0),
-                    sigmaX=5,
-                    sigmaY=5,
-                    borderType=cv2.BORDER_DEFAULT,
-                )
-                label3 = skimage.exposure.rescale_intensity(
-                    blur, in_range=(0.5, 1), out_range=(0, 1)
-                )
-
-                # blur label 4
-                blur = cv2.GaussianBlur(
-                    label0.float().numpy(),
-                    (0, 0),
-                    sigmaX=5,
-                    sigmaY=5,
-                    borderType=cv2.BORDER_DEFAULT,
-                )
-                label0 = skimage.exposure.rescale_intensity(
-                    blur, in_range=(0.5, 1), out_range=(0, 1)
-                )
-
-                # create random scaling factors for every label segmentation seperately
-                random_scale = torch.randint(-1, 3, (4,))
-
-                # build up the new signal by multiplying the scaling factors with the EFM
-                signal2 = (
-                    (signal * random_scale[0] * label0)
-                    + (signal * random_scale[1] * label1)
-                    + (signal * random_scale[2] * label2)
-                    + (signal * random_scale[3] * label3)
-                )
-                aug = torch.tensor(img) + signal2
-                img_aug = torch.clamp(aug, min=0.0, max=1.0)
-                new_imgs.append(img_aug)
-
-        for jj in range(len(new_imgs)):
-            self.img_slice_list.append(new_imgs[jj])
-            self.lab_slice_list.append(new_labs[jj].long())
-
-
-# datamodule for camus dataset
-class CAMUS_DATA(pl.LightningDataModule):
-    def __init__(
-        self,
-        data_root="./tgt_dir",
-        t=0.3,
-        s1=0.6,
-        s2=1.5,
-        rotation=20,
-        batch_size=8,
-        training_size=[256, 256],
-        test_size=2,
-        SNR=True,
-    ):
-        super().__init__()
-
-        self.data_root = data_root
-        self.batch_size = batch_size
-        self.training_size = training_size
-
-        self.args = {
-            "data_root": data_root,
-            "data_info": "./training/training",
-            "training_size": training_size,
-            "test_size": test_size,
-            "rotation": rotation,
-            "s1": s1,
-            "s2": s1,
-            "t": t,
-            "augs": True,
-            "SNR": SNR,
-        }
-
-    def train_dataloader(self):
-        data = CAMUSDataset(self.args, mode="train")
-        return DataLoader(data, batch_size=self.batch_size, shuffle=True)
-
-    def val_dataloader(self):
-        data = CAMUSDataset(self.args, mode="test")
-        return DataLoader(data, batch_size=self.batch_size, shuffle=False)
-
-    def test_dataloader(self):
-        data = CAMUSDataset(self.args, mode="test")
-        return DataLoader(data, batch_size=self.batch_size, shuffle=False)
-
-    #### for using the official test set of camus challenge
-    # def test_dataloader(self):
-    #    data = CAMUSDataset(self.args, mode='camus')
-    #    return DataLoader(data, batch_size=self.batch_size, shuffle=False)
-
-"""##**Segmentation model**"""
-
-from torch.nn.modules import PairwiseDistance
-
-
+"""Segmentation model"""
 class Segmentation(pl.LightningModule):
     def __init__(
         self,
@@ -582,49 +123,6 @@ class Segmentation(pl.LightningModule):
             self.criterion = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
             self.flag = 4
 
-    def multi_class_dice_score(self, img, labels, class_labels=[1, 2, 3]):
-        """Given an image and a label compute the dice score over
-        multiple class volumes. You can specify which classes dice
-        should be computed for. Don't use zero because it's the background."""
-
-        total_volume = 0.0
-        total_intersect_volume = 0.0
-
-        outputs = []
-        for label in class_labels:
-            img_bool = img.flatten() == label
-            labels_bool = labels.flatten() == label
-
-            volume = sum(img_bool) + sum(labels_bool)
-            intersect_volume = sum(img_bool & labels_bool)
-
-            total_volume += volume
-            total_intersect_volume += intersect_volume
-
-            outputs.append(2 * intersect_volume / volume)
-
-        return 2 * total_intersect_volume / total_volume, outputs
-
-    def multi_class_jaccard(self, img, labels, class_labels=[1, 2, 3]):
-        """Jaccard metric defined for two sets as |A and B| / |A or B|"""
-
-        total_union_volume = 0.0
-        total_intersect_volume = 0.0
-
-        outputs = []
-        for label in class_labels:
-            img_bool = img.flatten() == label
-            labels_bool = labels.flatten() == label
-
-            union_volume = sum(img_bool | labels_bool)
-            intersect_volume = sum(img_bool & labels_bool)
-
-            total_union_volume += union_volume
-            total_intersect_volume += intersect_volume
-
-            outputs.append(intersect_volume / union_volume)
-
-        return total_intersect_volume / total_union_volume, outputs
 
     def training_step(self, batch, batch_idx):
         img, label = batch
@@ -681,7 +179,8 @@ class Segmentation(pl.LightningModule):
         # self.logger.experiment["train/segmentations_pairs"].log(File.as_image(out_np))
         return train_loss
 
-    # runs metrics on validation set
+    # runs metrics on validation set, but is very slow, so only do it as when running
+    # trainer.test later and not every time when valiating after every epoch.
     def test_step(self, batch, batch_idx):
         img = batch[0]
         label = batch[1]
@@ -794,7 +293,7 @@ class Segmentation(pl.LightningModule):
         u = torch.argwhere(label.squeeze() == 1).cpu().numpy()
         v = torch.argwhere(preds.squeeze() == 1).cpu().numpy()
 
-        from scipy.spatial.distance import directed_hausdorff
+
 
         HF1 = max(directed_hausdorff(u, v)[0], directed_hausdorff(v, u)[0])
 
@@ -872,8 +371,6 @@ class Segmentation(pl.LightningModule):
 
         preds = torch.argmax(logits, dim=1)
         self.log("val_loss", val_loss)
-
-
 
         # log predictions and label
         # new = torch.cat((preds.unsqueeze(1)/self.classes, label/self.classes), dim=0)
@@ -1454,27 +951,14 @@ class Segmentation(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
-"""##**Train**"""
+"""Train"""
 
-# Commented out IPython magic to ensure Python compatibility.
 # make use of this implementation for monogenic signals, the paper we cited in
 # our paper did not have an implementation unfortunately
-#!git clone https://github.com/asp1420/monogenic-cnn-illumination-contrast
-# %cd monogenic-cnn-illumination-contrast/
 
-#!pip install pyfftw
-import cv2
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy.fftpack import fftshift, ifftshift
-from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
-import cv2
-import monogenic.tools.monogenic_functions as mf
-from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
-from sklearn.preprocessing import minmax_scale
 
 # train and hyper paramater search
-for model_name in ["UTNetV2"]:
+for model_name in ["UTNetV2", "Unet"]:
     for loss_function in ["CE+EDGE"]:
         for batch_size in [8]:
             for learning_rate in [0.0005, 0.00005]:
@@ -1545,7 +1029,6 @@ for model_name in ["UTNetV2"]:
                         # neptune_logger.experiment.stop()
 
 """##**Load trained model checks**"""
-
 datamodule = CAMUS_DATA(batch_size=1)
 model = Segmentation(
     model="UTNetV2", loss_function="DICE+CE", weight=[0.5, 1, 1, 1], lr=0.0005
@@ -1556,69 +1039,3 @@ trainer.test(
     datamodule=datamodule,
     ckpt_path="./model-checkpoints/"
 )
-###### Other models used in our paper scores ###
-# trainer.test(model=model, datamodule = datamodule, ckpt_path="/content/drive/MyDrive/AI4MED/model-checkpoints/Unet-epoch=19-D_loss_val=0.098966-8-DICE+CE[0.9, 1.1, 10, 0.1]0.0005FalseDICE+CE.ckpt")
-# BESTE-Unet-epoch=18-D_loss_val=0.095380-8-DICE+CE[0.7, 1.3, 30, 0.3]0.0005TrueDICE+CE
-# trainer.test(model=model, datamodule = datamodule, ckpt_path="/content/drive/MyDrive/AI4MED/model-checkpoints/UTNetV2-epoch=18-D_loss_val=0.088782-8-DICE+CE[0.8, 1.2, 20, 0.2]0.0005FalseDICE+CE.ckpt")
-
-##### output ugly metrics for previous models
-total_D1 = []
-total_D2 = []
-total_D3 = []
-total_H1 = []
-total_H2 = []
-total_H3 = []
-for item in model.ES:
-    D1 = item[0][0]
-    D2 = item[0][1]
-    D3 = item[0][2]
-    H1 = item[1]
-    H2 = item[2]
-    H3 = item[3]
-
-    total_D1.append(D1)
-    total_D2.append(D2)
-    total_D3.append(D3)
-
-    total_H1.append(H1)
-    total_H2.append(H2)
-    total_H3.append(H3)
-
-
-print(np.mean(total_D1))
-print(np.mean(total_D2))
-print(np.mean(total_D3))
-
-print(np.mean(total_H1))
-print(np.mean(total_H2))
-print(np.mean(total_H3))
-
-total_D1 = []
-total_D2 = []
-total_D3 = []
-total_H1 = []
-total_H2 = []
-total_H3 = []
-for item in model.ED:
-    D1 = item[0][0]
-    D2 = item[0][1]
-    D3 = item[0][2]
-    H1 = item[1]
-    H2 = item[2]
-    H3 = item[3]
-
-    total_D1.append(D1)
-    total_D2.append(D2)
-    total_D3.append(D3)
-
-    total_H1.append(H1)
-    total_H2.append(H2)
-    total_H3.append(H3)
-
-print(np.mean(total_D1))
-print(np.mean(total_D2))
-print(np.mean(total_D3))
-
-print(np.mean(total_H1))
-print(np.mean(total_H2))
-print(np.mean(total_H3))

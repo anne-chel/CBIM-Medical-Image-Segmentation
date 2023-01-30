@@ -4,366 +4,186 @@ import torch.nn.functional as F
 import numpy as np
 import math
 import pdb
-
-
-# This is a PyTorch data augmentation library, that takes PyTorch Tensor as input
-# Functions can be applied in the __getitem__ function to do augmentation on the fly during training.
-# These functions can be easily parallelized by setting 'num_workers' in pytorch dataloader.
-
-# tensor_img: 1, C, (D), H, W
-
-
-def gaussian_noise(tensor_img, std, mean=0):
-
-    return tensor_img + torch.randn(tensor_img.shape).to(tensor_img.device) * std + mean
-
-
-def brightness_additive(tensor_img, std, mean=0, per_channel=False):
-
-    if per_channel:
-        C = tensor_img.shape[1]
-    else:
-        C = 1
-
-    if len(tensor_img.shape) == 5:
-        rand_brightness = torch.normal(mean, std, size=(1, C, 1, 1, 1)).to(
-            tensor_img.device
-        )
-    elif len(tensor_img.shape) == 4:
-        rand_brightness = torch.normal(mean, std, size=(1, C, 1, 1)).to(
-            tensor_img.device
-        )
-    else:
-        raise ValueError(
-            "Invalid input tensor dimension, should be 5d for volume image or 4d for 2d image"
-        )
-
-    return tensor_img + rand_brightness
-
-
-def brightness_multiply(tensor_img, multiply_range=[0.7, 1.3], per_channel=False):
-
-    if per_channel:
-        C = tensor_img.shape[1]
-    else:
-        C = 1
-
-    assert multiply_range[1] > multiply_range[0], "Invalid range"
-
-    span = multiply_range[1] - multiply_range[0]
-    if len(tensor_img.shape) == 5:
-        rand_brightness = (
-            torch.rand(size=(1, C, 1, 1, 1)).to(tensor_img.device) * span
-            + multiply_range[0]
-        )
-    elif len(tensor_img.shape) == 4:
-        rand_brightness = (
-            torch.rand(size=(1, C, 1, 1)).to(tensor_img.device) * span
-            + multiply_range[0]
-        )
-    else:
-        raise ValueError(
-            "Invalid input tensor dimension, should be 5d for volume image or 4d for 2d image"
-        )
-
-    return tensor_img * rand_brightness
-
-
-def gamma(tensor_img, gamma_range=(0.5, 2), per_channel=False, retain_stats=False):
-
-    if len(tensor_img.shape) == 5:
-        dim = "3d"
-        _, C, D, H, W = tensor_img.shape
-    elif len(tensor_img.shape) == 4:
-        dim = "2d"
-        _, C, H, W = tensor_img.shape
-    else:
-        raise ValueError(
-            "Invalid input tensor dimension, should be 5d for volume image or 4d for 2d image"
-        )
-
-    tmp_C = C if per_channel else 1
-
-    tensor_img = tensor_img.view(tmp_C, -1)
-    minm, _ = tensor_img.min(dim=1)
-    maxm, _ = tensor_img.max(dim=1)
-    minm, maxm = minm.unsqueeze(1), maxm.unsqueeze(
-        1
-    )  # unsqueeze for broadcast machanism
-
-    rng = maxm - minm
-
-    mean = tensor_img.mean(dim=1).unsqueeze(1)
-    std = tensor_img.std(dim=1).unsqueeze(1)
-    gamma = torch.rand(C, 1) * (gamma_range[1] - gamma_range[0]) + gamma_range[0]
-
-    tensor_img = torch.pow((tensor_img - minm) / rng, gamma) * rng + minm
-
-    if retain_stats:
-        tensor_img -= tensor_img.mean(dim=1).unsqueeze(1)
-        tensor_img = tensor_img / tensor_img.std(dim=1).unsqueeze(1) * std + mean
-
-    if dim == "3d":
-        return tensor_img.view(1, C, D, H, W)
-    else:
-        return tensor_img.view(1, C, H, W)
-
-
-def contrast(
-    tensor_img, contrast_range=(0.65, 1.5), per_channel=False, preserve_range=True
-):
-
-    if len(tensor_img.shape) == 5:
-        dim = "3d"
-        _, C, D, H, W = tensor_img.shape
-    elif len(tensor_img.shape) == 4:
-        dim = "2d"
-        _, C, H, W = tensor_img.shape
-    else:
-        raise ValueError(
-            "Invalid input tensor dimension, should be 5d for volume image or 4d for 2d image"
-        )
-
-    tmp_C = C if per_channel else 1
-
-    tensor_img = tensor_img.view(tmp_C, -1)
-    minm, _ = tensor_img.min(dim=1)
-    maxm, _ = tensor_img.max(dim=1)
-    minm, maxm = minm.unsqueeze(1), maxm.unsqueeze(
-        1
-    )  # unsqueeze for broadcast machanism
-
-    mean = tensor_img.mean(dim=1).unsqueeze(1)
-    factor = (
-        torch.rand(C, 1) * (contrast_range[1] - contrast_range[0]) + contrast_range[0]
-    )
-
-    tensor_img = (tensor_img - mean) * factor + mean
-
-    if preserve_range:
-        tensor_img = torch.clamp(tensor_img, min=minm, max=maxm)
-
-    if dim == "3d":
-        return tensor_img.view(1, C, D, H, W)
-    else:
-        return tensor_img.view(1, C, H, W)
-
-
-def mirror(tensor_img, axis=0):
-
-    """
-    Args:
-        tensor_img: an image with format of pytorch tensor
-        axis: the axis for mirroring. 0 for the first image axis, 1 for the second, 2 for the third (if volume image)
-    """
-
-    if len(tensor_img.shape) == 5:
-        dim = "3d"
-        assert axis in [0, 1, 2], "axis should be either 0, 1 or 2 for volume images"
-
-    elif len(tensor_img.shape) == 4:
-        dim = "2d"
-        assert axis in [0, 1], "axis should be either 0 or 1 for 2D images"
-    else:
-        raise ValueError(
-            "Invalid input tensor dimension, should be 5d for volume image or 4d for 2d image"
-        )
-
-    return torch.flip(tensor_img, dims=[2 + axis])
-
-
-def random_scale_rotate_translate_2d(tensor_img, tensor_lab, scale, rotate, translate):
-
-    # implemented with affine transformation
-
-    if isinstance(scale, float) or isinstance(scale, int):
-        scale = [scale] * 2
-    if isinstance(translate, float) or isinstance(translate, int):
-        translate = [translate] * 2
-
-    scale_x = 1 - scale[0] + np.random.random() * 2 * scale[0]
-    scale_y = 1 - scale[1] + np.random.random() * 2 * scale[1]
-    shear_x = np.random.random() * 2 * scale[0] - scale[0]
-    shear_y = np.random.random() * 2 * scale[1] - scale[1]
-    translate_x = np.random.random() * 2 * translate[0] - translate[0]
-    translate_y = np.random.random() * 2 * translate[1] - translate[1]
-
-    theta_scale = torch.tensor(
-        [[scale_x, shear_x, translate_x], [shear_y, scale_y, translate_y], [0, 0, 1]]
-    ).float()
-    angle = (float(np.random.randint(-rotate, max(rotate, 1))) / 180.0) * math.pi
-
-    theta_rotate = torch.tensor(
-        [
-            [math.cos(angle), -math.sin(angle), 0],
-            [math.sin(angle), math.cos(angle), 0],
-            [0, 0, 1],
-        ]
-    ).float()
-
-    theta = torch.mm(theta_scale, theta_rotate)[0:2, :]
-    grid = F.affine_grid(theta.unsqueeze(0), tensor_img.size(), align_corners=True)
-
-    tensor_img = F.grid_sample(
-        tensor_img, grid, mode="bilinear", padding_mode="zeros", align_corners=True
-    )
-    tensor_lab = F.grid_sample(
-        tensor_lab.float(),
-        grid,
-        mode="nearest",
-        padding_mode="zeros",
-        align_corners=True,
-    ).long()
-
-    return tensor_img, tensor_lab
-
-
-def random_scale_rotate_translate_3d(
-    tensor_img, tensor_lab, scale, rotate, translate, noshear=True
-):
-
-    if isinstance(scale, float) or isinstance(scale, int):
-        scale = [scale] * 3
-    if isinstance(translate, float) or isinstance(translate, int):
-        translate = [translate] * 3
-    if isinstance(rotate, float) or isinstance(rotate, int):
-        rotate = [rotate] * 3
-
-    scale_z = 1 - scale[0] + np.random.random() * 2 * scale[0]
-    scale_x = 1 - scale[1] + np.random.random() * 2 * scale[1]
-    scale_y = 1 - scale[2] + np.random.random() * 2 * scale[2]
-    shear_xz = 0 if noshear else np.random.random() * 2 * scale[0] - scale[0]
-    shear_yz = 0 if noshear else np.random.random() * 2 * scale[0] - scale[0]
-    shear_zx = 0 if noshear else np.random.random() * 2 * scale[1] - scale[1]
-    shear_yx = 0 if noshear else np.random.random() * 2 * scale[1] - scale[1]
-    shear_zy = 0 if noshear else np.random.random() * 2 * scale[2] - scale[2]
-    shear_xy = 0 if noshear else np.random.random() * 2 * scale[2] - scale[2]
-    translate_z = np.random.random() * 2 * translate[0] - translate[0]
-    translate_x = np.random.random() * 2 * translate[1] - translate[1]
-    translate_y = np.random.random() * 2 * translate[2] - translate[2]
-
-    theta_scale = torch.tensor(
-        [
-            [scale_y, shear_xy, shear_zy, translate_y],
-            [shear_yx, scale_x, shear_zx, translate_x],
-            [shear_yz, shear_xz, scale_z, translate_z],
-            [0, 0, 0, 1],
-        ]
-    ).float()
-    angle_xy = (
-        float(np.random.randint(-rotate[0], max(rotate[0], 1))) / 180.0
-    ) * math.pi
-    angle_xz = (
-        float(np.random.randint(-rotate[1], max(rotate[1], 1))) / 180.0
-    ) * math.pi
-    angle_yz = (
-        float(np.random.randint(-rotate[2], max(rotate[2], 1))) / 180.0
-    ) * math.pi
-
-    theta_rotate_xz = torch.tensor(
-        [
-            [1, 0, 0, 0],
-            [0, math.cos(angle_xz), -math.sin(angle_xz), 0],
-            [0, math.sin(angle_xz), math.cos(angle_xz), 0],
-            [0, 0, 0, 1],
-        ]
-    ).float()
-    theta_rotate_xy = torch.tensor(
-        [
-            [math.cos(angle_xy), -math.sin(angle_xy), 0, 0],
-            [math.sin(angle_xy), math.cos(angle_xy), 0, 0],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1],
-        ]
-    ).float()
-    theta_rotate_yz = torch.tensor(
-        [
-            [math.cos(angle_yz), 0, -math.sin(angle_yz), 0],
-            [0, 1, 0, 0],
-            [math.sin(angle_yz), 0, math.cos(angle_yz), 0],
-            [0, 0, 0, 1],
-        ]
-    ).float()
-
-    theta = torch.mm(theta_rotate_xy, theta_rotate_xz)
-    theta = torch.mm(theta, theta_rotate_yz)
-    theta = torch.mm(theta, theta_scale)[0:3, :].unsqueeze(0)
-
-    grid = F.affine_grid(theta, tensor_img.size(), align_corners=True)
-    tensor_img = F.grid_sample(
-        tensor_img, grid, mode="bilinear", padding_mode="zeros", align_corners=True
-    )
-    tensor_lab = F.grid_sample(
-        tensor_lab.float(),
-        grid,
-        mode="nearest",
-        padding_mode="zeros",
-        align_corners=True,
-    ).long()
-
-    return tensor_img, tensor_lab
-
-
-def crop_2d(tensor_img, tensor_lab, crop_size, mode):
-    assert mode in ["random", "center"], "Invalid Mode, should be 'random' or 'center'"
-    if isinstance(crop_size, int):
-        crop_size = [crop_size] * 2
-
-    _, _, H, W = tensor_img.shape
-
-    diff_H = H - crop_size[0]
-    diff_W = W - crop_size[1]
-
-    if mode == "random":
-        rand_x = np.random.randint(0, max(diff_H, 1))
-        rand_y = np.random.randint(0, max(diff_W, 1))
-    else:
-        rand_x = diff_H // 2
-        rand_y = diff_W // 2
-
-    cropped_img = tensor_img[
-        :, :, rand_x : rand_x + crop_size[0], rand_y : rand_y + crop_size[1]
-    ]
-    cropped_lab = tensor_lab[
-        :, :, rand_x : rand_x + crop_size[0], rand_y : rand_y + crop_size[1]
-    ]
-
-    return cropped_img, cropped_lab
-
-
-def crop_3d(tensor_img, tensor_lab, crop_size, mode):
-    assert mode in ["random", "center"], "Invalid Mode, should be 'random' or 'center'"
-    if isinstance(crop_size, int):
-        crop_size = [crop_size] * 3
-
-    _, _, D, H, W = tensor_img.shape
-
-    diff_D = D - crop_size[0]
-    diff_H = H - crop_size[1]
-    diff_W = W - crop_size[2]
-
-    if mode == "random":
-        rand_z = np.random.randint(0, max(diff_D, 1))
-        rand_x = np.random.randint(0, max(diff_H, 1))
-        rand_y = np.random.randint(0, max(diff_W, 1))
-    else:
-        rand_z = diff_D // 2
-        rand_x = diff_H // 2
-        rand_y = diff_W // 2
-
-    cropped_img = tensor_img[
-        :,
-        :,
-        rand_z : rand_z + crop_size[0],
-        rand_x : rand_x + crop_size[1],
-        rand_y : rand_y + crop_size[2],
-    ]
-    cropped_lab = tensor_lab[
-        :,
-        :,
-        rand_z : rand_z + crop_size[0],
-        rand_x : rand_x + crop_size[1],
-        rand_y : rand_y + crop_size[2],
-    ]
-
-    return cropped_img, cropped_lab
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.fftpack import fftshift, ifftshift
+from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
+import cv2
+import monogenic.tools.monogenic_functions as mf
+from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
+from sklearn.preprocessing import minmax_scale
+import skimage.exposure
+
+def create_augmentations(self):
+
+        import torchvision.transforms as T
+
+        total = len(self.img_slice_list)
+        new_imgs = []
+        new_labs = []
+
+        s1 = self.args["s1"]
+        s2 = self.args["s2"]
+        t = self.args["t"]
+        rot = self.args["rotation"]
+        for i in range(total):
+
+            ######## affine transformation
+            # use the same transformation for ground truth label and image
+            affine_transfomer = T.RandomAffine(
+                degrees=(-rot, rot), translate=(t, t), scale=(s1, s2)
+            )
+            new = torch.cat(
+                (
+                    self.img_slice_list[i].unsqueeze(0),
+                    self.lab_slice_list[i].unsqueeze(0),
+                ),
+                dim=0,
+            )
+            transformed = affine_transfomer(new.unsqueeze(dim=1))
+
+            img_aug = torch.clamp(transformed[0].squeeze(), min=0.0, max=1.0)
+            new_imgs.append(img_aug)
+            new_labs.append(transformed[1].squeeze().int())
+
+            ###### SNR augmentation
+            if self.args["SNR"] == True:
+
+                # append label to set, this is unchanged
+                new_labs.append(self.lab_slice_list[i].int())
+
+                label = self.lab_slice_list[i]
+                img = self.img_slice_list[i]
+
+                ##### mask 3 pixels around the triangular border otherwise it will
+                ##### be extremely visible in in the monogenic signal
+                mask = np.where(label > 0, 1, 0)
+                for i in range(256):
+                    for j in range(256):
+                        if j == 0 and mask[i][j] == 1:
+                            mask[i][j + 1] = 0
+                        if j < 254:
+                            if mask[i][j] == 0:
+                                mask[i][j + 1] = 0
+                                break
+                for i in range(256):
+                    for j in range(256):
+                        if j < 254:
+                            if mask[i][j] == 0 and mask[i][j + 1] == 1:
+                                mask[i][j + 1] = 0
+                                break
+                for i in range(256):
+                    for j in range(256):
+                        if j < 254:
+                            if mask[i][j] == 0 and mask[i][j + 1] == 1:
+                                mask[i][j + 1] = 0
+                                break
+                for i in range(255, -1, -1):
+                    for j in range(255, -1, -1):
+                        if j == 255 and mask[i][j] == 1:
+                            mask[i][j] = 0
+                for i in range(255, -1, -1):
+                    for j in range(255, -1, -1):
+                        if j > 0:
+                            if mask[i][j] == 0 and mask[i][j - 1] == 1:
+                                mask[i][j - 1] = 0
+                                break
+                for i in range(255, 252, -1):
+                    for j in range(255, -1, -1):
+                        mask[i][j] = 0
+
+                rows, cols = img.shape
+
+                # the higher the wavelength and sigma the more "details" are removed
+                logGabor, logGabor_H1, logGabor_H2 = mf.monogenic_scale(
+                    cols=cols, rows=rows, ss=1, minWaveLength=3, mult=1.8, sigmaOnf=0.2
+                )
+
+                IM = fft2(img)
+                IMF = IM * logGabor
+
+                IMH1 = IM * logGabor_H1
+                IMH2 = IM * logGabor_H2
+
+                f = np.real(ifft2(IMF))
+                h1 = np.real(ifft2(IMH1))
+                h2 = np.real(ifft2(IMH2))
+
+                ##### LEM
+                LEM = torch.FloatTensor(f * f + h1 * h1 + h2 * h2)
+
+                mask = torch.tensor(mask)
+                signal = LEM * mask.float()
+
+                #### create gaussian smoothed edges for every ground truth label
+                label0 = torch.where(label == 0, -1, 0)
+                label0 = torch.where(label0 == -1, 1, 0)  # background
+                label1 = torch.where(label == 1, 1, 0)  # big chamber
+                label2 = torch.where(label == 2, 1, 0)  # white thing around
+                label3 = torch.where(label == 3, 1, 0)  # little one at the bottom
+
+                # blur label 1
+                blur = cv2.GaussianBlur(
+                    label1.float().numpy(),
+                    (0, 0),
+                    sigmaX=5,
+                    sigmaY=5,
+                    borderType=cv2.BORDER_DEFAULT,
+                )
+                label1 = skimage.exposure.rescale_intensity(
+                    blur, in_range=(0.5, 1), out_range=(0, 1)
+                )
+
+                # blur label 2
+                blur = cv2.GaussianBlur(
+                    label2.float().numpy(),
+                    (0, 0),
+                    sigmaX=5,
+                    sigmaY=5,
+                    borderType=cv2.BORDER_DEFAULT,
+                )
+                label2 = skimage.exposure.rescale_intensity(
+                    blur, in_range=(0.5, 1), out_range=(0, 1)
+                )
+
+                # blur label 3
+                blur = cv2.GaussianBlur(
+                    label3.float().numpy(),
+                    (0, 0),
+                    sigmaX=5,
+                    sigmaY=5,
+                    borderType=cv2.BORDER_DEFAULT,
+                )
+                label3 = skimage.exposure.rescale_intensity(
+                    blur, in_range=(0.5, 1), out_range=(0, 1)
+                )
+
+                # blur label 4
+                blur = cv2.GaussianBlur(
+                    label0.float().numpy(),
+                    (0, 0),
+                    sigmaX=5,
+                    sigmaY=5,
+                    borderType=cv2.BORDER_DEFAULT,
+                )
+                label0 = skimage.exposure.rescale_intensity(
+                    blur, in_range=(0.5, 1), out_range=(0, 1)
+                )
+
+                # create random scaling factors for every label segmentation seperately
+                random_scale = torch.randint(-1, 3, (4,))
+
+                # build up the new signal by multiplying the scaling factors with the EFM
+                signal2 = (
+                    (signal * random_scale[0] * label0)
+                    + (signal * random_scale[1] * label1)
+                    + (signal * random_scale[2] * label2)
+                    + (signal * random_scale[3] * label3)
+                )
+                aug = torch.tensor(img) + signal2
+                img_aug = torch.clamp(aug, min=0.0, max=1.0)
+                new_imgs.append(img_aug)
+        for jj in range(len(new_imgs)):
+            self.img_slice_list.append(new_imgs[jj])
+            self.lab_slice_list.append(new_labs[jj].long())
