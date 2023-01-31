@@ -86,6 +86,8 @@ def full_validation(self, batch, batch_idx):
 
     if self.flag == 0 or self.flag == 3:
         val_loss = self.criterion(logits, label.squeeze(1))
+        self.log("CE_loss", val_loss)
+        self.log("D_loss_val", val_loss)
 
     if self.flag == 1:
         CE_loss = self.criterion(logits, label.squeeze(1))
@@ -107,6 +109,7 @@ def full_validation(self, batch, batch_idx):
         val_loss = CE_loss + 0.2 * reg_loss
         self.log("test_CE_loss", CE_loss)
         self.log("test_reg_loss", reg_loss)
+        self.log("D_loss_val", val_loss)
 
     if self.flag == 2:
         val_loss = self.criterion(logits, label)
