@@ -9,7 +9,7 @@ if __name__ == "__main__":
 
     # these remain constant
     filepath = "/training/"
-    filepath_checkpoint = "/model-checkpoints/"
+    filepath_checkpoint = ".AImed/model-checkpoints/"
     
     for model_name in ["UTNetV2", "Unet"]:
         for loss_function in ["CE","Dice", "Focal", "CE+Dice", "CE+EDGE+Dice"]:
