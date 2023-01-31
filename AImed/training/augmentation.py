@@ -10,14 +10,15 @@ import numpy as np
 from scipy.fftpack import fftshift, ifftshift
 from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
 import cv2
-import monogenic.tools.monogenic_functions as mf
+import AImed.monogenic.tools.monogenic_functions as mf
 from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
 from sklearn.preprocessing import minmax_scale
 import skimage.exposure
+import torchvision.transforms as T
 
-def create_augmentations(self):
-
-        import torchvision.transforms as T
+# SNR augmentation and affine transformation
+# possible extend?
+def create_augmentations(self):      
 
         total = len(self.img_slice_list)
         new_imgs = []

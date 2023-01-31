@@ -19,7 +19,7 @@ import os
 import cv2
 import numpy as np
 import torch
-from training.augmentation import create_augmentations
+from AImed.training.augmentation import create_augmentations
 
 """Prepare data and create dataset"""
 class CAMUSDataset(Dataset):
@@ -40,7 +40,8 @@ class CAMUSDataset(Dataset):
         with open(args["data_root"]+"/list/dataset.yaml", "r") as f:
             img_name_list = yaml.load(f, Loader=yaml.SafeLoader)
 
-        camus_test_names = img_name_list[0:50]
+        # unseen validation set is constant for now
+        camus_test_names = img_name_list[0:30]
 
         random.Random(seed).shuffle(img_name_list)
 
@@ -68,11 +69,10 @@ class CAMUSDataset(Dataset):
 
         test_name_list = img_name_list[: args["test_size"]]
         train_name_list = list(set(img_name_list) - set(test_name_list))
+        #train_name_list = train_name_list[:2]
 
-        train_name_list = train_name_list[:2]
 
-
-        path = './training/training'
+        path = './AImed/training/training'
         img_list = []
         lab_list = []
         idx = ["_2CH_ED.mhd", "_2CH_ES.mhd", "_4CH_ED.mhd", "_4CH_ES.mhd"]
@@ -245,14 +245,14 @@ class CAMUSDataset(Dataset):
 class CAMUS_DATA(pl.LightningDataModule):
     def __init__(
         self,
-        data_root="./tgt_dir",
+        data_root="./AImed/tgt_dir",
         t=0.3,
         s1=0.6,
         s2=1.5,
         rotation=20,
         batch_size=8,
         training_size=[256, 256],
-        test_size=2,
+        test_size=20,
         SNR=True,
     ):
         super().__init__()
@@ -263,7 +263,7 @@ class CAMUS_DATA(pl.LightningDataModule):
 
         self.args = {
             "data_root": data_root,
-            "data_info": "./training/training",
+            "data_info": "./AImed/training/training",
             "training_size": training_size,
             "test_size": test_size,
             "rotation": rotation,
