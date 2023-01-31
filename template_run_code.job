@@ -19,6 +19,7 @@ source activate camus
 root=/scratch/$USER
 mkdir -p $root
 
- 
 code_dir= $HOME/CBIM-Medical-Image-Segmentation/
+
+python pipeline.py
 
