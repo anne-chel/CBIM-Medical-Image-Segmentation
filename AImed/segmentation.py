@@ -118,6 +118,49 @@ class Segmentation(pl.LightningModule):
             self.criterion = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
             self.flag = 4
 
+    def multi_class_dice_score(self, img, labels, class_labels=[1,2,3]):
+            """ Given an image and a label compute the dice score over
+            multiple class volumes. You can specify which classes dice
+            should be computed for. Don't use zero because it's the background."""
+
+            total_volume = 0.
+            total_intersect_volume = 0.
+            
+            outputs = []
+            for label in class_labels:
+                img_bool = img.flatten() == label
+                labels_bool = labels.flatten() == label
+
+                volume = sum(img_bool) + sum(labels_bool)
+                intersect_volume = sum(img_bool & labels_bool)
+
+                total_volume += volume
+                total_intersect_volume += intersect_volume
+
+                outputs.append(2 * intersect_volume / volume)
+
+            return 2 * total_intersect_volume / total_volume, outputs
+
+    def multi_class_jaccard(self, img, labels, class_labels=[1,2,3]):
+          """ Jaccard metric defined for two sets as |A and B| / |A or B|"""
+
+          total_union_volume = 0.
+          total_intersect_volume = 0.
+          
+          outputs = []
+          for label in class_labels:
+              img_bool = img.flatten() == label
+              labels_bool = labels.flatten() == label
+
+              union_volume = sum(img_bool | labels_bool)
+              intersect_volume = sum(img_bool & labels_bool)
+
+              total_union_volume += union_volume
+              total_intersect_volume += intersect_volume
+
+              outputs.append(intersect_volume/union_volume)
+
+          return total_intersect_volume / total_union_volume, outputs
 
     def training_step(self, batch, batch_idx):
         img, label = batch

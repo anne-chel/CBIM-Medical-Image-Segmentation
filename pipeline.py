@@ -13,7 +13,7 @@ if __name__ == "__main__":
     
     for model_name in ["UTNetV2", "Unet"]:
         for loss_function in ["CE","Dice", "Focal", "CE+Dice", "CE+EDGE+Dice"]:
-            for batch_size in [4, 8, 16]:
+            for batch_size in [1,4, 8, 16]:
                 for learning_rate in [0.005, 0.0005, 0.00005, 0.000005]:
                     for affine in [
                         [0.6, 1.4, 40, 0.4],

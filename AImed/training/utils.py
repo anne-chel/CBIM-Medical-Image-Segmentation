@@ -191,8 +191,6 @@ def full_validation(self, batch, batch_idx):
     u = torch.argwhere(label.squeeze() == 1).cpu().numpy()
     v = torch.argwhere(preds.squeeze() == 1).cpu().numpy()
 
-
-
     HF1 = max(directed_hausdorff(u, v)[0], directed_hausdorff(v, u)[0])
 
     ##### camus dataset-> 0.145x0.154mm^2

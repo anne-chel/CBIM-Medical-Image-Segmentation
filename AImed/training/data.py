@@ -40,7 +40,7 @@ class CAMUSDataset(Dataset):
         with open(args["data_root"]+"/list/dataset.yaml", "r") as f:
             img_name_list = yaml.load(f, Loader=yaml.SafeLoader)
 
-        # unseen validation set is constant for now
+        # camus inference for their official 
         camus_test_names = img_name_list[0:30]
 
         random.Random(seed).shuffle(img_name_list)
@@ -69,7 +69,7 @@ class CAMUSDataset(Dataset):
 
         test_name_list = img_name_list[: args["test_size"]]
         train_name_list = list(set(img_name_list) - set(test_name_list))
-        #train_name_list = train_name_list[:2]
+        train_name_list = train_name_list[:2]
 
 
         path = './AImed/training/training'
@@ -252,7 +252,7 @@ class CAMUS_DATA(pl.LightningDataModule):
         rotation=20,
         batch_size=8,
         training_size=[256, 256],
-        test_size=20,
+        test_size=1,
         SNR=True,
     ):
         super().__init__()
