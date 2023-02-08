@@ -14,5 +14,5 @@ module load 2021
 module load Anaconda3/2021.05
 
 cd $HOME/CBIM-Medical-Image-Segmentation/
-conda env create -f env_build.yml
+conda env create -f environment.yml
 echo "Installation [OK]"
