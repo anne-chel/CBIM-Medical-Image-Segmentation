@@ -8,7 +8,7 @@ Segmentation and EF calculation.
 ### Environment
 To run the env creator in Snellius, clone this repository and ```cd ./CBIM-Medical-Image-Segmentation```. Run ```sbatch env_build.sh``` in the terminal and after approx 30 mins, the environment should be created. 
 
-To run locally: conda env -f create environment.yml and conda activate camus (to do: update environment for snellius)
+To run locally: ```conda env -f create environment.yml``` and ```conda activate camus``` (to do: update environment for snellius) 
 
 ### Data
 Download official CAMUS dataset from https://humanheart-project.creatis.insa-lyon.fr/database/#collection/6373703d73e9f0047faa1bc8 and put with its original structure and quality information in training/camus-dataset. Download official test dataset from camus and place in testing/camus-test-dataset
