@@ -32,21 +32,23 @@ def create_augmentations(self):
 
             ######## affine transformation
             # use the same transformation for ground truth label and image
-            affine_transfomer = T.RandomAffine(
-                degrees=(-rot, rot), translate=(t, t), scale=(s1, s2)
-            )
-            new = torch.cat(
-                (
-                    self.img_slice_list[i].unsqueeze(0),
-                    self.lab_slice_list[i].unsqueeze(0),
-                ),
-                dim=0,
-            )
-            transformed = affine_transfomer(new.unsqueeze(dim=1))
 
-            img_aug = torch.clamp(transformed[0].squeeze(), min=0.0, max=1.0)
-            new_imgs.append(img_aug)
-            new_labs.append(transformed[1].squeeze().int())
+            if self.args['aff'] == True:
+                affine_transfomer = T.RandomAffine(
+                    degrees=(-rot, rot), translate=(t, t), scale=(s1, s2)
+                )
+                new = torch.cat(
+                    (
+                        self.img_slice_list[i].unsqueeze(0),
+                        self.lab_slice_list[i].unsqueeze(0),
+                    ),
+                    dim=0,
+                )
+                transformed = affine_transfomer(new.unsqueeze(dim=1))
+
+                img_aug = torch.clamp(transformed[0].squeeze(), min=0.0, max=1.0)
+                new_imgs.append(img_aug)
+                new_labs.append(transformed[1].squeeze().int())
 
             ###### SNR augmentation
             if self.args["SNR"] == True:

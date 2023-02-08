@@ -1,24 +1,26 @@
-## Follow-up project
-To run the env creator in Snellius, clone this repository and ```cd ./CBIM-Medical-Image-Segmentation```. Run ```sbatch env_build.sh``` in the terminal and after approx 30 mins, the environment should be created. 
-
 ## Camus Segmentation Challenge AI for Medical Imaging
 Group names: Anne Chel, Victor Kyriacou, Vıctor Retamal Guiberteau, Laura Latorre Moreno
 
 This forked repository contains the work of our group, build on top of the package CBIM-Medical-Image-Segmentation.
 
+Segmentation and EF calculation.
+
+### Environment
+To run the env creator in Snellius, clone this repository and ```cd ./CBIM-Medical-Image-Segmentation```. Run ```sbatch env_build.sh``` in the terminal and after approx 30 mins, the environment should be created. 
+
+To run locally: conda env -f create environment.yml and conda activate camus (to do: update environment for snellius)
+
+### Data
+Download official CAMUS dataset from https://humanheart-project.creatis.insa-lyon.fr/database/#collection/6373703d73e9f0047faa1bc8 and put with its original structure and quality information in training/camus-dataset. Download official test dataset from camus and place in testing/camus-test-dataset
 
 ### Currently Supporting models
 - [UTNetV2](https://arxiv.org/abs/2203.00131) (Official implementation)
 - [UNet] Including 2D, 3D with different building block, e.g. double conv, Residual BasicBlock, Bottleneck, MBConv, or ConvNeXt block.
 
 ### Supporting Datasets
-- CAMUS
+- CAMUS 
 
 ### To do
-- more cleaning
-- output for slurm
-- experimental setup design
-- more models
 - signifance testing
 
 ### Citation

@@ -3,51 +3,62 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import pdb
+import kornia as K
 
-def multi_class_dice_score(self, img, labels, class_labels=[1, 2, 3]):
-    """Given an image and a label compute the dice score over
-    multiple class volumes. You can specify which classes dice
-    should be computed for. Don't use zero because it's the background."""
+class CE_Loss(nn.Module):
+    def __init__(self, weight = [0.5, 1, 1, 1]):
+        super(CE_Loss, self).__init__()
+        self.weight = weight
+        self.f1 = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
+        self.log_list = []
 
-    total_volume = 0.0
-    total_intersect_volume = 0.0
+    def forward(self, preds, targets):
+        loss = self.f1(preds, targets)
+        self.log_list = [["CE_loss", loss]]
+        return loss
 
-    outputs = []
-    for label in class_labels:
-        img_bool = img.flatten() == label
-        labels_bool = labels.flatten() == label
+class Dice_CE_Loss(nn.Module):
+    def __init__(self, weight=[0.5, 1, 1, 1]):
+        super(CELoss, self).__init__()
+        self.weight = weight
+        self.f1 = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
+        self.f2 = DiceLoss()
+        self.log_list = []
 
-        volume = sum(img_bool) + sum(labels_bool)
-        intersect_volume = sum(img_bool & labels_bool)
+    def forward(self, preds, targets):
+        ce_loss = self.f1(preds, targets)
+        dice_loss = self.f2(preds, targets)
+        loss = ce_loss + dice_loss
+        self.log_list = [["CE_loss", ce_loss], ["D_loss", dice_loss]]
+        return loss
 
-        total_volume += volume
-        total_intersect_volume += intersect_volume
+class Dice_CE_Edge_Loss(nn.Module):
+    def __init__(self, weight=[0.5, 1, 1, 1], ignore_index=-10, lamd = 0.2):
+        super(CELoss, self).__init__()
+        self.weight = weight
+        self.ignore_index = ignore_index
+        self.lamd = lamd
+        self.f1 = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
+        self.f2 = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
+        self.f3 = losses.DiceLoss()
+        self.log_list = []
 
-        outputs.append(2 * intersect_volume / volume)
+    def forward(self, preds, targets):
+        CE_loss = self.f1(preds, targets)
 
-    return 2 * total_intersect_volume / total_volume, outputs
+        # find the edge pixels for the segmentation classes
+        x_sobel = K.filters.sobel(targets.unsqueeze(0) / 3)
+        reverse = 1.0 - x_sobel
 
-def multi_class_jaccard(self, img, labels, class_labels=[1, 2, 3]):
-    """Jaccard metric defined for two sets as |A and B| / |A or B|"""
+        # set non-edge pixels to -10 such that these will be ignored in the loss
+        edges = torch.where(reverse > 0.9989, -10, targets.unsqueeze(0)).squeeze(1)
 
-    total_union_volume = 0.0
-    total_intersect_volume = 0.0
+        reg_loss = self.criterion2(preds, edges)
+        D_loss = self.criterion3(preds, targets.unsqueeze(0))
+        loss = CE_loss + self.lamd * reg_loss + D_loss
 
-    outputs = []
-    for label in class_labels:
-        img_bool = img.flatten() == label
-        labels_bool = labels.flatten() == label
-
-        union_volume = sum(img_bool | labels_bool)
-        intersect_volume = sum(img_bool & labels_bool)
-
-        total_union_volume += union_volume
-        total_intersect_volume += intersect_volume
-
-        outputs.append(intersect_volume / union_volume)
-
-    return total_intersect_volume / total_union_volume, outputs
-
+        self.log_list = [["CE_loss", CE_loss], ["D_loss", D_loss], ["Edge_loss", reg_loss]]
+        return loss
 
 class DiceLoss(nn.Module):
     def __init__(self, alpha=0.5, beta=0.5, size_average=True, reduce=True):
@@ -57,6 +68,7 @@ class DiceLoss(nn.Module):
 
         self.size_average = size_average
         self.reduce = reduce
+        self.log_list = []
 
     def forward(self, preds, targets):
         N = preds.size(0)
@@ -107,6 +119,7 @@ class DiceLoss(nn.Module):
         if self.size_average:
             loss /= C
 
+        self.log_list = [["D_loss", loss]]
         return loss
 
 
@@ -148,26 +161,25 @@ class FocalLoss(nn.Module):
         else:
             loss = batch_loss.sum()
 
+        self.log_list = [["Focal_loss", loss]]
+
         return loss
 
+class loss_selection():
+    def __init__(self, flag = "CE"):
+        self.flag = flag
 
-if __name__ == "__main__":
-
-    DL = DiceLoss()
-    FL = FocalLoss(10)
-
-    pred = torch.randn(2, 10, 128, 128)
-    target = torch.zeros((2, 1, 128, 128)).long()
-
-    dl_loss = DL(pred, target)
-    fl_loss = FL(pred, target)
-
-    print("2D:", dl_loss.item(), fl_loss.item())
-
-    pred = torch.randn(2, 10, 64, 128, 128)
-    target = torch.zeros(2, 1, 64, 128, 128).long()
-
-    dl_loss = DL(pred, target)
-    fl_loss = FL(pred, target)
-
-    print("3D:", dl_loss.item(), fl_loss.item())
+    def select(self):
+        if self.flag == "CE":
+            return CE_Loss()
+        elif self.flag == "CE+EDGE+Dice":
+            return Dice_CE_Edge_Loss()
+        elif self.flag == "Dice":
+            return DiceLoss()
+        elif self.flag == "Focal":
+            return FocalLoss(class_num=4, gamma=2)
+        elif self.flag == "CE+Dice":
+            return Dice_CE_Loss()
+        else:
+            print("Please select valid loss function")
+            exit()

@@ -4,8 +4,8 @@ __pycache__/
 *.cfg
 *.mhd
 *.raw
+*.ckpt
 flops.py
-checkpoint/
 log*/
 exp/
 initmodel/
@@ -15,7 +15,5 @@ camus
 /.DS_Store
 /.idea
 lightning_logs/
-tgt_dir/
 key.txt
-/training/training/
 .neptune/

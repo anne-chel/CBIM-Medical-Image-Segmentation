@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import os
 import glob
 import yaml
@@ -58,7 +56,7 @@ import cv2
 from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
 from sklearn.preprocessing import minmax_scale
 from AImed.training.utils import *
-
+from AImed.lvef_estimation import *
 
 """Segmentation model"""
 class Segmentation(pl.LightningModule):
@@ -69,11 +67,12 @@ class Segmentation(pl.LightningModule):
         weight=[0.5, 1, 1, 1],
         lr=0.0005,
         batch_size=8,
+        data = None
     ):
         super().__init__()
 
         self.epoch = 0
-
+        self.data = data
         self.name_list_all = ["_2CH_ED", "_2CH_ES", "_4CH_ED", "_4CH_ES"] * 10
         self.ED = []
         self.ES = []
@@ -87,152 +86,85 @@ class Segmentation(pl.LightningModule):
         self.weight = weight
         self.lr = lr
 
-        if model == "UTNetV2":
-            self.model = UTNetV2(1, 4)
-            self.filepath_logs = "./logs/UTnetv2/"
-
-        if model == "Unet":
-            self.model = UNet(1, 4)
-            self.filepath_logs = "./logs/Unet/"
-
-        if loss_function == "CE":
-            self.criterion = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
-            self.flag = 0
-
-        if loss_function == "CE+EDGE+Dice":
-            self.criterion = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
-            self.criterion2 = nn.CrossEntropyLoss(ignore_index=-10)
-            self.criterion3 = losses.DiceLoss()
-            self.flag = 1
-
-        elif loss_function == "Dice":
-            self.criterion = losses.DiceLoss()
-            self.flag = 2
-
-        elif loss_function == "Focal":
-            self.criterion = losses.FocalLoss(class_num=4, gamma=2)
-            self.flag = 3
-
-        elif loss_function == "CE+Dice":
-            self.criterion2 = losses.DiceLoss()
-            self.criterion = nn.CrossEntropyLoss(weight=torch.tensor(self.weight))
-            self.flag = 4
-
-    def multi_class_dice_score(self, img, labels, class_labels=[1,2,3]):
-            """ Given an image and a label compute the dice score over
-            multiple class volumes. You can specify which classes dice
-            should be computed for. Don't use zero because it's the background."""
-
-            total_volume = 0.
-            total_intersect_volume = 0.
-            
-            outputs = []
-            for label in class_labels:
-                img_bool = img.flatten() == label
-                labels_bool = labels.flatten() == label
-
-                volume = sum(img_bool) + sum(labels_bool)
-                intersect_volume = sum(img_bool & labels_bool)
-
-                total_volume += volume
-                total_intersect_volume += intersect_volume
-
-                outputs.append(2 * intersect_volume / volume)
-
-            return 2 * total_intersect_volume / total_volume, outputs
-
-    def multi_class_jaccard(self, img, labels, class_labels=[1,2,3]):
-          """ Jaccard metric defined for two sets as |A and B| / |A or B|"""
-
-          total_union_volume = 0.
-          total_intersect_volume = 0.
-          
-          outputs = []
-          for label in class_labels:
-              img_bool = img.flatten() == label
-              labels_bool = labels.flatten() == label
-
-              union_volume = sum(img_bool | labels_bool)
-              intersect_volume = sum(img_bool & labels_bool)
-
-              total_union_volume += union_volume
-              total_intersect_volume += intersect_volume
-
-              outputs.append(intersect_volume/union_volume)
-
-          return total_intersect_volume / total_union_volume, outputs
+        self.all_views = []
+        self.model = model_selection(flag=model).select()
+        self.selected_loss = losses.loss_selection(flag = loss_function).select()
 
     def training_step(self, batch, batch_idx):
-        img, label = batch
+        img, label, name, size, EF = batch
 
         logits = self.model(img.float())
-        # regular weighted CE Loss
-        if self.flag == 0:
-            train_loss = self.criterion(logits, label.squeeze(1))
-            self.log("CE_loss", train_loss)
-            self.log("train_loss", train_loss)
 
-        # custom loss incorporating edges
-        if self.flag == 1:
-            CE_loss = self.criterion(logits, label.squeeze(1))
-            # find the edge pixels for the segmentation classes
-            x_sobel = K.filters.sobel(label / self.classes)
-            reverse = 1.0 - x_sobel
-            # set non-edge pixels to -10 such that these will be ignored in the loss
-            edges = torch.where(reverse > 0.9989, -10, label).squeeze(1)
+        train_loss = self.selected_loss(logits, label.squeeze(1))
+        self.log('train_loss', train_loss)
+        for item in self.selected_loss.log_list:
+            self.log(item[0], item[1])
 
-            reg_loss = self.criterion2(logits, edges)
-            D_loss = self.criterion3(logits, label)
-            train_loss = CE_loss + 0.2 * reg_loss + D_loss
-
-            self.log("train_loss", train_loss)
-            self.log("CE_loss", CE_loss)
-            self.log("reg_loss", reg_loss)
-            self.log("train_d_loss", D_loss)
-
-        # Dice loss
-        if self.flag == 2:
-            train_loss = self.criterion(logits, label)
-            self.log("dice_loss", train_loss)
-            self.log("train_loss", train_loss)
-
-        # focal loss
-        if self.flag == 3:
-            train_loss = self.criterion(logits, label.squeeze(1))
-            self.log("focal_loss", train_loss)
-            self.log("train_loss", train_loss)
-
-        # dice loss + CE loss
-        if self.flag == 4:
-            CE_loss = self.criterion(logits, label.squeeze(1))
-            D_loss = self.criterion2(logits, label)
-            train_loss = CE_loss + D_loss
-            self.log("train_loss", train_loss)
-            self.log("CE_loss", CE_loss)
-            self.log("DL_loss", D_loss)
-
-        new = torch.cat((img, label / self.classes), dim=0)
-        vis = torchvision.utils.make_grid(new, nrow=self.batch_size, padding=5)
-        out_np = K.utils.tensor_to_image(vis)
-        # self.logger.experiment["train/segmentations_pairs"].log(File.as_image(out_np))
         return train_loss
 
+
     def validation_step(self, batch, batch_idx):
-        val_loss = full_validation(self, batch, batch_idx)
+
+        img, label, name, size, EF = batch
+
+        logits = self.model(img.float())
+        val_loss = self.selected_loss(logits, label.squeeze(1))
+        preds = torch.argmax(logits, dim=1)
+
+        
+        log_image(self, label, preds)
+
+        for item in self.selected_loss.log_list:
+            self.log(item[0], item[1])
+
+        preds, label = get_original_size(preds, label, size)
+
+        if len(self.all_views) < 5:
+            self.all_views.append(preds)
+         
+        # at the beginning the predictions are so bad that EF calculationg
+        # goes wrong
+        try:  
+            _, D_classes = multi_class_dice_score(preds, label.squeeze(1))
+            if len(self.all_views) == 4:
+                EF, error = calculate_volume(images=self.all_views, true_ef=EF)
+                self.all_views = []
+                self.log("EF_error", error)
+                
+        except:
+             _, D_classes = multi_class_dice_score(preds, label.squeeze(1))
+   
+        # log seperate for every class
+        for c in range(1,4):
+            self.log("D"+str(c-1), D_classes[c-1])
+            if D_classes[c-1] != 0:
+                self.log("HF"+str(c), compute_HF(label, preds, c))
+
+        self.log("validation/loss", val_loss)
         return val_loss
 
-    # validation step without full HD calculation in mm
-    #def validation_step(self, batch, batch_idx):
-    #    val_loss = full_validation(self, batch, batch_idx)
-    #    return val_loss 
+    # "test step" where the images after the trained model 
+    #  are saved for easy access and EF calculation
+    def test_step(self, batch, batch_idx):
+        img, _, name, size, _ = batch
+        logits = self.model(img.float())
 
-    # return output segmenations for EF calculation
-    def make_camus_pred_test(self, batch, batch_idx):
-        return camus_output_pred_images(self, batch, batch_idx)
+        preds = torch.argmax(logits, dim=1)
 
-    # return output segmentation for validation set
-    def make_val_pred(self, batch, batch_idx):
-        return val_output_pred_images(self, batch, batch_idx)
+        preds = get_original_size(preds, None, size)
+
+        if len(self.all_views) < 5:
+            self.all_views.append(preds)
+
+        if len(self.all_views) == 4:
+            EF = calculate_volume(images=self.all_views, true_ef=None)
+            self.all_views = []
+            self.log("test/EF", EF)
+
+        # save final segmentations
+        torch.save(
+            preds, "./test/predictions/"+self.args["model"]+"/" + name
+        )
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.model.parameters(), lr=self.lr)

@@ -90,6 +90,7 @@ if __name__ == "__main__":
                                 max_epochs=5,
                                 callbacks=[checkpoint_callback],
                                 log_every_n_steps=1,
+                                num_sanity_val_steps=0
                             )
 
                             # train and validate model
