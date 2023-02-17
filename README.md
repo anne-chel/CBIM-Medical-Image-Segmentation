@@ -20,9 +20,6 @@ Download official CAMUS dataset from https://humanheart-project.creatis.insa-lyo
 ### Supporting Datasets
 - CAMUS 
 
-### To do
-- signifance testing
-
 ### Citation
 ```
 @inproceedings{gao2021utnet,
